@@ -41,29 +41,63 @@ countries:
       - name: National
         leadtime:
           Jan: 
-            - MAM_National: "1-month"
+            - MAM: "1-month"
           Feb: 
-            - MAM_National: "0-month"
+            - MAM: "0-month"
           Mar: 
-            - MAM_National: "0-month"
+            - MAM: "0-month"
           Apr: 
-            - OND_National: "0-month"
+            - MAM: "0-month"
           May: 
-            - OND_National: "4-month"
+            - MAM: "0-month"
           Jun: 
-            - OND_National: "3-month"
+            - OND: "3-month"
           Jul: 
-            - OND_National: "2-month"
+            - OND: "2-month"
           Aug: 
-            - OND_National: "1-month"
+            - OND: "1-month"
           Sep: 
-            - OND_National: "0-month"
+            - OND: "0-month"
           Oct: 
-            - OND_National: "0-month"
+            - OND: "0-month"
           Nov: 
-            - OND_National: "0-month"
+            - OND: "0-month"
           Dec: 
-            - MAM_National: "2-month"
+            - MAM: "2-month"
+  - name: LSO
+    admin-levels: 1
+    trigger_model: 
+      model: seasonal_rainfall_forecast
+      trigger_level: 50
+      trigger_probability: 40
+      area_threshold: 0.5
+    Climate_Region:
+      - name: National
+        leadtime:
+          Jan: 
+            - WET_SEASON: "0-month"
+          Feb: 
+            - WET_SEASON: "0-month"
+          Mar: 
+            - DRY_SEASON: "0-month"
+          Apr: 
+            - DRY_SEASON: "0-month"
+          May: 
+            - DRY_SEASON: "0-month"
+          Jun: 
+            - DRY_SEASON: "0-month"
+          Jul: 
+            - WET_SEASON : "3-month"
+          Aug: 
+            - WET_SEASON: "2-month"
+          Sep: 
+            - WET_SEASON: "1-month"
+          Oct: 
+            - WET_SEASON: "0-month"
+          Nov: 
+            - WET_SEASON: "0-month"
+          Dec: 
+            - WET_SEASON: "0-month"
   - name: UGA
     admin-levels: 2
     trigger_model: 
