@@ -27,7 +27,7 @@ from calendar import monthrange
 
 import numpy as np
 
-supported_sources = ["GloFAS"]
+supported_sources = ["ECMWF"]
 
 
 def slice_netcdf_file(nc_file: xr.Dataset, country_bounds: list):
@@ -71,16 +71,12 @@ class Extract:
         """Set settings"""
         if not isinstance(settings, Settings):
             raise TypeError(f"invalid format of settings, use settings.Settings")
-        if self.source == "GloFAS":
-            settings.check_settings(["glofas_ftp_server", "no_ensemble_members"])
         self.settings = settings
 
     def set_secrets(self, secrets):
         """Set secrets based on the data source"""
         if not isinstance(secrets, Secrets):
             raise TypeError(f"invalid format of secrets, use secrets.Secrets")
-        if self.source == "GloFAS":
-            secrets.check_secrets(["GLOFAS_USER", "GLOFAS_PASSWORD"])
         self.secrets = secrets
 
     def set_source(self, source_name, secrets: Secrets = None):
@@ -112,11 +108,9 @@ class Extract:
         elif self.source is None and source is not None:
             self.source = source
         self.country = country
-        if self.source == "GloFAS":
+        if self.source == "ECMWF":
             self.prepare_ecmwf_data()
             self.extract_ecmwf_data()
-
-
 
     def prepare_ecmwf_data(self, country: str = None, debug: bool = False):
         """
@@ -134,7 +128,7 @@ class Extract:
             currentMonth=(datetime.today() - timedelta(days=31)).strftime("%m")
         # Download netcdf file
         logging.info(f"downloading ecmwf data ")
-        filename_local = os.path.join(self.inputPathGrid, f"GloFAS_{country}.nc")
+        
 
         #download_ecmwf_forecast(self,country, DATADIR, currentYear, currentMonth)
         try:
@@ -212,8 +206,7 @@ class Extract:
    
     def extract_ecmwf_data(self, country: str = None, debug: bool = False):
         """
-        Download GloFAS data for each ensemble member
-        and extract river discharge data per admin division and station
+        extract seasonal rainfall forecastand extract it per climate region
         """
         filename_local = os.path.join(self.confgPath, f"{country}_climate_region_district_mapping.csv")    
         csv_data = pd.read_csv(filename_local)
