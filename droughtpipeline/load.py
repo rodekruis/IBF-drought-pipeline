@@ -817,7 +817,6 @@ class Load:
             DATADIR (str): Directory to save the data
             month_ (int): Month of the forecast
 
-
         """   
         gdf=self.get_adm_boundaries(country,1)
 
@@ -848,7 +847,7 @@ class Load:
                 "5",
                 "6"
             ],
-            "data_format": "netcdf",
+            "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
             }            
             )         
@@ -878,7 +877,7 @@ class Load:
                     "%s. %s." % (reply["error"].get("message"), reply["error"].get("reason"))
                 )
             
-        r.download(f'{DATADIR}/ecmwf_seas5_forecast_monthly_tp.nc')
+        r.download(f'{DATADIR}/ecmwf_seas5_forecast_monthly_tp.grib')
 
         r=c.retrieve(
             'seasonal-monthly-single-levels',
@@ -908,7 +907,7 @@ class Load:
                 "5",
                 "6"
             ],
-            "data_format": "netcdf",
+            "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
             }            
             )   
@@ -938,9 +937,4 @@ class Load:
                     "%s. %s." % (reply["error"].get("message"), reply["error"].get("reason"))
                 )
             
-        r.download(f'{DATADIR}/ecmwf_seas5_hindcast_monthly_tp.nc')
-
-
-
-
-  
+        r.download(f'{DATADIR}/ecmwf_seas5_hindcast_monthly_tp.grib')

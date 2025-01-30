@@ -1,9 +1,7 @@
 from droughtpipeline.secrets import Secrets
 from droughtpipeline.settings import Settings
 from droughtpipeline.data import (
-    PipelineDataSets,
-    DischargeDataUnit,
-    DischargeStationDataUnit,
+    PipelineDataSets
 )
 from droughtpipeline.load import Load
 import os
@@ -118,8 +116,7 @@ class Extract:
         """
         if country is None:
             country = self.country
-        logging.info(f"start preparing ECMWF seasonal forecast data for country {country}")
-        date = datetime.today().strftime("%Y%m%d")
+        logging.info(f"start preparing ECMWF seasonal forecast data for country {country}") 
         currentYear=datetime.today().strftime("%Y")
         currentMonth=datetime.today().strftime("%m")
 
@@ -208,15 +205,21 @@ class Extract:
         """
         extract seasonal rainfall forecastand extract it per climate region
         """
-        filename_local = os.path.join(self.confgPath, f"{country}_climate_region_district_mapping.csv")    
+        if country is None:
+            country = self.country
+
+   
+
+        filename_local = f"{self.confgPath}/{country}_climate_region_district_mapping.csv"  
+        
         csv_data = pd.read_csv(filename_local)
         ### admin_level 
-        admin_level_= self.settings.get_country_setting('ETH', "admin-levels")
-        triggermodel=self.settings.get_country_setting('ETH', "trigger_model")['model']
-        trigger_probability=self.settings.get_country_setting('ETH', "trigger_model")['trigger_probability'] # for the ensamble mebers below average to define drought extent
+        admin_level_= self.settings.get_country_setting(country, "admin-levels")
+        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']
+        trigger_probability=self.settings.get_country_setting(country, "trigger_model")['trigger_probability'] # for the ensamble mebers below average to define drought extent
         trigger_level=self.settings.get_country_setting('ETH', "trigger_model")['trigger_level'] # for the ensamble mebers below tercile to define trigger status
 
-        geofile=Load.get_adm_boundaries(country,admin_level_)
+        geofile=self.load.get_adm_boundaries(country,admin_level_)
 
         # the climate analysis might be happenig at admin level 1 or 2 
         if admin_level_==1:
