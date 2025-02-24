@@ -212,9 +212,7 @@ class Extract:
         if country is None:
             country = self.country   
 
-        filename_local = f"{self.confgPath}/{country}_climate_region_district_mapping.csv"  
-        
-        csv_data = pd.read_csv(filename_local)
+
         ### admin_level 
         logging.info(f"Extract ecmwf data for country {country}")
         
@@ -231,15 +229,49 @@ class Extract:
         geofile=self.load.get_adm_boundaries(country,admin_level_)
 
         # the climate analysis might be happenig at admin level 1 or 2 
+        '''
+        filename_local = f"{self.confgPath}/{country}_climate_region_district_mapping.csv"          
+        csv_data = pd.read_csv(filename_local)
         if admin_level_==1:
             merged_data = geofile.merge(csv_data, left_on='adm1_pcode', right_on='placeCode')  
         else:            
             merged_data = geofile.merge(csv_data, left_on='adm2_pcode', right_on='placeCode')
-       
+        '''
         logging.info("Extract seasonal forecast for each climate region")
+                
+                
+        # get climate regions for each country         
+        climateRegions=self.data.threshold_climateregion.get_climate_region_codes()
 
-        for climateRegion in merged_data['Climate_Region_code'].unique().tolist():
-            filtered_gdf = merged_data[merged_data['Climate_Region_code'] == climateRegion]
+        climateRegionPcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=1).pcodes
+        
+        
+ 
+
+        for climateRegion in climateRegions:#merged_data['Climate_Region_code'].unique().tolist():
+            pcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).pcodes
+            climateRegionName= self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).climate_region_name
+            
+            climateRegionPcodes=pcodes[f'{admin_level_}']
+            if admin_level_==1:
+                filtered_gdf = geofile[geofile['adm1_pcode'].isin(climateRegionPcodes)]
+                filtered_gdf['placeCode']= filtered_gdf['adm1_pcode']
+            elif admin_level_==2:
+                filtered_gdf = geofile[geofile['adm2_pcode'].isin(climateRegionPcodes)]
+                filtered_gdf['placeCode']= filtered_gdf['adm2_pcode']
+            elif admin_level_==3:
+                filtered_gdf = geofile[geofile['adm3_pcode'].isin(climateRegionPcodes)]
+                filtered_gdf['placeCode']= filtered_gdf['adm3_pcode']
+            elif admin_level_==4:
+                filtered_gdf = geofile[geofile['adm4_pcode'].isin(climateRegionPcodes)]
+                filtered_gdf['placeCode']= filtered_gdf['adm4_pcode']
+            else:
+                raise ValueError(f" No data matching {admin_level_} found in the admin geo file.")
+            
+                
+                
+            
+            #filtered_gdf = merged_data[merged_data['Climate_Region_code'] == climateRegion]
             if filtered_gdf.empty:
                 raise ValueError(f"No data matching {climateRegion} found in the geofile.")  
         
@@ -417,6 +449,7 @@ class Extract:
                     self.data.forecast_admin.upsert_data_unit(
                         ForecastDataUnit(
                             climate_region_code=climateRegion,
+                            climate_region_name=climateRegionName,
                             pcode=pcode,
                             lead_time=leadtime,
                             tercile_lower=forecastData['tercile_lower'][leadtime],

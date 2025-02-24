@@ -34,7 +34,7 @@ countries:
     admin-levels: 1
     trigger-on-lead-time: 3 
     classify-alert-on: disable
-      alert-on-minimum-probability:
+    alert-on-minimum-probability:
       min: 0.65
       med: 0.75
       max: 0.85

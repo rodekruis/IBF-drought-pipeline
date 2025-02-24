@@ -308,50 +308,25 @@ class ClimateRegionDataSet:
         if not bdu:
             raise ValueError(f"Data unit with climate_region_code {climate_region_code} not found")
         return bdu
-        
 
-
-class ClimateRegionDataSet_old:
-    """Base class for station data sets"""
-
-    def __init__(
-        self,
-        country: str = None,
-        timestamp: datetime = datetime.now(),
-        data_units: List[ClimateRegionDataUnit] = None,
-    ):
-        self.country = country
-        self.timestamp = timestamp
-        self.data_units = data_units
-
-
-    def get_data_unit(
-        self, climate_region_code: str, lead_time: int = None
-    ) -> ClimateRegionDataUnit:
-        """Get data unit by station_code and optionally by lead time"""
+    def get_data_units(self, lead_time: int = None, adm_level: int = None):
+        """Return list of data units filtered by lead time and/or admin level"""
         if not self.data_units:
             raise ValueError("Data units not found")
-        if lead_time:
-            bdu = next(
+        if lead_time is not None and adm_level is not None:
+            return list(
                 filter(
-                    lambda x: x.climate_region_code == climate_region_code
-                    and x.lead_time == lead_time,
+                    lambda x: x.lead_time == lead_time and x.adm_level == adm_level,
                     self.data_units,
-                ),
-                None,
+                )
             )
+        elif lead_time is not None:
+            return list(filter(lambda x: x.lead_time == lead_time, self.data_units))
+        elif adm_level is not None:
+            return list(filter(lambda x: x.adm_level == adm_level, self.data_units))
         else:
-            bdu = next(
-                filter(lambda x: x.climate_region_code == climate_region_code, self.data_units),
-                None,
-            )
-        if not bdu:
-            raise ValueError(
-                f"Data unit with climate_region_code {climate_region_code} and lead_time {lead_time} not found"
-            )
-        else:
-            return bdu
-
+            return self.data_units
+        
     def upsert_data_unit(self, data_unit: ClimateRegionDataUnit):
         """Add data unit; if it already exists, update it"""
         if not self.data_units:
@@ -388,7 +363,8 @@ class ClimateRegionDataSet_old:
         """Return list of unique station codes"""
         return list(
             set([x.climate_region_code for x in self.data_units if hasattr(x, "climate_region_code")])
-        )
+        )       
+        
 
 
 

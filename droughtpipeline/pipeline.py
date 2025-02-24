@@ -7,6 +7,7 @@ from droughtpipeline.settings import Settings
 from droughtpipeline.data import PipelineDataSets
 from datetime import datetime, date, timedelta
 import logging
+import json
 
 logger = logging.getLogger()
 logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
@@ -32,7 +33,9 @@ class Pipeline:
         )
 
         self.data.threshold_climateregion = self.load.get_pipeline_data(data_type="climate-region", country=self.country )
-         
+        
+     
+
 
         self.extract = Extract(
             settings=settings,

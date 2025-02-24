@@ -175,7 +175,7 @@ class Forecast:
 
         trigger_on_lead_time = self.settings.get_country_setting(country, "trigger-on-lead-time" )
 
-        trigger_on_return_period = self.settings.get_country_setting(country, "trigger-on-return-period")
+        #trigger_on_return_period = self.settings.get_country_setting(country, "trigger-on-return-period")
 
         trigger_on_minimum_probability = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-probability']
 
