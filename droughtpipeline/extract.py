@@ -1,9 +1,13 @@
 from droughtpipeline.secrets import Secrets
 from droughtpipeline.settings import Settings
 from droughtpipeline.data import (
-    PipelineDataSets
+    PipelineDataSets,
+    ForecastDataUnit,
+    RainfallDataUnit,
+    RainfallClimateRegionDataUnit,
 )
 from droughtpipeline.load import Load
+ 
 import os
 from datetime import datetime, timedelta
 import time
@@ -166,7 +170,7 @@ class Extract:
 
         # Loop through each forecast month and save to a separate GeoTIFF file
         for i, month in enumerate(forecast_months):
-            output_file = f"{self.outputPathGrid}/below_average_precipitation_leadtime_{month}_month.tif"
+            output_file = f"{self.outputPathGrid}/drought_extent_{month}_month.tif"
             data = data_array.sel(forecastMonth=month).values
 
             with rasterio.open(
@@ -206,18 +210,23 @@ class Extract:
         extract seasonal rainfall forecastand extract it per climate region
         """
         if country is None:
-            country = self.country
-
-   
+            country = self.country   
 
         filename_local = f"{self.confgPath}/{country}_climate_region_district_mapping.csv"  
         
         csv_data = pd.read_csv(filename_local)
         ### admin_level 
+        logging.info(f"Extract ecmwf data for country {country}")
+        
         admin_level_= self.settings.get_country_setting(country, "admin-levels")
         triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']
-        trigger_probability=self.settings.get_country_setting(country, "trigger_model")['trigger_probability'] # for the ensamble mebers below average to define drought extent
-        trigger_level=self.settings.get_country_setting('ETH', "trigger_model")['trigger_level'] # for the ensamble mebers below tercile to define trigger status
+
+        #trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
+        #trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
+        #trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+    
+        trigger_probability=self.settings.get_country_setting(country, "trigger_model")["trigger-on-minimum-probability-drought-extent"] # for the ensamble mebers below average to define drought extent
+        trigger_level=self.settings.get_country_setting(country, "trigger_model")["trigger-on-minimum-probability"] # for the ensamble mebers below tercile to define trigger status
 
         geofile=self.load.get_adm_boundaries(country,admin_level_)
 
@@ -241,7 +250,10 @@ class Extract:
             except ValueError as e:
                 print(e)
             #sub_region (tuple): Subregion coordinates (North, West, South, East).
+            
             sub_region = (lat_max, lon_min, lat_min, lon_max)
+
+            
 
             # Load hindcast dataset and calculate mean
             ds_hindcast = xr.open_dataset(
@@ -322,7 +334,8 @@ class Extract:
             sub_anomalies = self.subset_region(anomalies_tp, sub_region)
 
             #to determin aresas where the forecasted rain is below average for 70% of the ensemble members
-            percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(sub_anomalies,trigger_probability)       
+            percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(sub_anomalies,trigger_probability)     
+
             self.save_to_geotiff(percentage_below_average_per_gridcell)
 
 
@@ -360,28 +373,63 @@ class Extract:
             }
 
             # Calculate trigger status
+            dftemp=anomalies_df.anomaly 
+
+            dftemp=anomalies_df.anomaly 
+            dftemp.index=dftemp.index + 1
+            forecastQ=dftemp.to_dict(orient='index')          
+
+
+            forecastData={
+                'çlimateRegion':climateRegion,
+                'tercile_lower':thresholds['P33'].drop_vars(['quantile','numdays']).to_series().to_dict(),
+                'tercile_upper':thresholds['P66'].drop_vars(['quantile','numdays']).to_series().to_dict(),
+                'forecast':forecastQ
+                }
+                      
+
             tercile_seasonal_prc_df = thresholds['P33'].drop_vars(['quantile', 'numdays']).to_dataframe(name='p33')
         
             tercile_seasonal_prc_df = tercile_seasonal_prc_df.reset_index().drop('forecastMonth', axis=1)
 
             dftemp=anomalies_df.anomaly 
 
-            tercile_seasonal_prc_df['triggerForecast'] = (dftemp.iloc[:, :51].lt(tercile_seasonal_prc_df.iloc[:, 0], axis=0).sum(axis=1) / 51) * 100
+            tercile_seasonal_prc_df['triggerForecast'] = (dftemp.iloc[:, :51].lt(tercile_seasonal_prc_df.iloc[:, 0], axis=0).sum(axis=1) / 51) 
 
             tercile_seasonal_prc_df['triggerStatus'] = tercile_seasonal_prc_df['triggerForecast'].gt(trigger_level)
+
             # Add the lead time index as months (e.g., Month 1, Month 2, etc.)
-            tercile_seasonal_prc_df.index = [f"Month {i+1}" for i in tercile_seasonal_prc_df.index]
+            #tercile_seasonal_prc_df.index = [f"Month {i+1}" for i in tercile_seasonal_prc_df.index]
 
             # Convert to dictionary
+            tercile_seasonal_prc_df.index = range(1, len(tercile_seasonal_prc_df) + 1)
             data_dict = tercile_seasonal_prc_df[['triggerForecast','triggerStatus']].to_dict(orient="index")
 
-            # Save to JSON
+                        # Save to JSON
             json_file_path = f"{self.outputPathGrid}/climateregion_{climateRegion}.json"
 
             with open(json_file_path, "w") as json_file:
                 json.dump(data_dict, json_file, indent=4)
+            logging.info(f"finished extraction of rainfall forecast for climate region{climateRegion}")
 
-        return tercile_seasonal_prc_df
+            for leadtime in forecastData['tercile_lower'].keys():
+                for pcode in filtered_gdf.placeCode.unique():
+                    self.data.forecast_admin.upsert_data_unit(
+                        ForecastDataUnit(
+                            climate_region_code=climateRegion,
+                            pcode=pcode,
+                            lead_time=leadtime,
+                            tercile_lower=forecastData['tercile_lower'][leadtime],
+                            tercile_upper=forecastData['tercile_upper'][leadtime],
+                            rainfall_forecast=forecastData['forecast'][leadtime],
+                            trigger=data_dict[leadtime]['triggerStatus'],
+                            likelihood=data_dict[leadtime]['triggerForecast'],
+                        )
+                    )        
+
+
+
+
 
         
 

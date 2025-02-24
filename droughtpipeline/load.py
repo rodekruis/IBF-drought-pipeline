@@ -14,6 +14,10 @@ from droughtpipeline.data import (
     AdminDataUnit,
     ForecastDataUnit,
     ThresholdDataUnit,
+    ClimateRegionDataSet,
+    RainfallClimateRegionDataUnit,
+    ClimateRegionDataUnit,
+    RainfallDataUnit,
     PipelineDataSets,
 )
 from urllib.error import HTTPError
@@ -33,7 +37,6 @@ from azure.core.exceptions import ResourceNotFoundError
 COSMOS_DATA_TYPES = [
     "climate-region",
     "seasonal-rainfall-forecast",
-    "seasonal-rainfall-threshold",
 ]
 
 
@@ -42,6 +45,7 @@ def get_cosmos_query(
     end_date=None,
     country=None,
     adm_level=None,
+    climate_region_code=None,
     pcode=None,
     lead_time=None,
 ):
@@ -52,8 +56,10 @@ def get_cosmos_query(
         query += f'AND c.timestamp <= "{end_date.strftime("%Y-%m-%dT%H:%M:%S")}" '
     if country is not None:
         query += f'AND c.country = "{country}" '
-    if adm_level is not None:
+    if adm_level is not None:    
         query += f'AND c.adm_level = "{adm_level}" '
+    if climate_region_code is not None:    
+        query += f'AND c.climate_region_code = "{climate_region_code}" '
     if pcode is not None:
         query += f'AND c.adm_level = "{pcode}" '
     if lead_time is not None:
@@ -71,11 +77,11 @@ def get_data_unit_id(data_unit: AdminDataUnit, dataset: AdminDataSet):
             id_ = f"{data_unit.pcode}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}"
         else:
             id_ = f"{data_unit.pcode}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
-    elif hasattr(data_unit, "station_code"):
+    elif hasattr(data_unit, "climate_region_code"):
         if hasattr(data_unit, "lead_time"):
-            id_ = f"{data_unit.station_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}"
+            id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}"
         else:
-            id_ = f"{data_unit.station_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
+            id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
     else:
         id_ = f"{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
     return id_
@@ -579,41 +585,17 @@ class Load:
                 f"Supported storages are {', '.join(COSMOS_DATA_TYPES)}"
             )
         # check data types
-        if data_type == "discharge":
-            for data_unit in dataset.data_units:
-                if not isinstance(data_unit, DischargeDataUnit):
-                    raise ValueError(
-                        f"Data unit {data_unit} is not of type DischargeDataUnit"
-                    )
-        elif data_type == "forecast":
+        if data_type == "seasonal-rainfall-forecast":
             for data_unit in dataset.data_units:
                 if not isinstance(data_unit, ForecastDataUnit):
                     raise ValueError(
-                        f"Data unit {data_unit} is not of type ForecastDataUnit"
+                        f"Data unit {data_unit} is not of type seasonal rainfall forecast"
                     )
-        elif data_type == "threshold":
+        elif data_type == "climate-region":
             for data_unit in dataset.data_units:
-                if not isinstance(data_unit, ThresholdDataUnit):
+                if not isinstance(data_unit, ClimateRegionDataUnit):
                     raise ValueError(
-                        f"Data unit {data_unit} is not of type ThresholdDataUnit"
-                    )
-        elif data_type == "discharge-station":
-            for data_unit in dataset.data_units:
-                if not isinstance(data_unit, DischargeStationDataUnit):
-                    raise ValueError(
-                        f"Data unit {data_unit} is not of type DischargeStationDataUnit"
-                    )
-        elif data_type == "forecast-station":
-            for data_unit in dataset.data_units:
-                if not isinstance(data_unit, ForecastStationDataUnit):
-                    raise ValueError(
-                        f"Data unit {data_unit} is not of type ForecastStationDataUnit"
-                    )
-        elif data_type == "threshold-station":
-            for data_unit in dataset.data_units:
-                if not isinstance(data_unit, ThresholdStationDataUnit):
-                    raise ValueError(
-                        f"Data unit {data_unit} is not of type ThresholdStationDataUnit"
+                        f"Data unit {data_unit} is not of type ClimateregionDataUnit"
                     )
 
         client_ = cosmos_client.CosmosClient(
@@ -660,7 +642,7 @@ class Load:
             user_agent="ibf-flood-pipeline",
             user_agent_overwrite=True,
         )
-        cosmos_db = client_.get_database_client("flood-pipeline")
+        cosmos_db = client_.get_database_client("drought-pipeline")
         cosmos_container_client = cosmos_db.get_container_client(data_type)
         query = get_cosmos_query(
             start_date, end_date, country, adm_level, pcode, lead_time
@@ -685,72 +667,32 @@ class Load:
                         record["country"] == country
                         and record["timestamp"] == timestamp
                     ):
-                        if data_type == "discharge":
-                            data_unit = DischargeDataUnit(
-                                adm_level=record["adm_level"],
-                                pcode=record["pcode"],
-                                lead_time=record["lead_time"],
-                                discharge_mean=record["discharge_mean"],
-                                discharge_ensemble=record["discharge_ensemble"],
-                            )
-                        elif data_type == "forecast":
+                        if data_type == "seasonal-rainfall-forecast":
                             data_unit = ForecastDataUnit(
                                 adm_level=record["adm_level"],
                                 pcode=record["pcode"],
                                 lead_time=record["lead_time"],
-                                forecasts=record["forecasts"],
+                                triggered=record["triggered"],
+                                tercile_upper=record["tercile_upper"],
+                                tercile_lower=record["tercile_lower"],
+                                likelihood=record["likelihood"],
                                 pop_affected=record["pop_affected"],
                                 pop_affected_perc=record["pop_affected_perc"],
-                                triggered=record["triggered"],
-                                return_period=record["return_period"],
                                 alert_class=record["alert_class"],
                             )
-                        elif data_type == "threshold":
-                            data_unit = ThresholdDataUnit(
+                        elif data_type == "climate-region":
+                            data_unit = ClimateRegionDataUnit(
                                 adm_level=record["adm_level"],
-                                pcode=record["pcode"],
-                                thresholds=record["thresholds"],
-                            )
-                        elif data_type == "discharge-station":
-                            data_unit = DischargeStationDataUnit(
-                                station_code=record["station_code"],
-                                station_name=record["station_name"],
-                                lat=record["lat"],
-                                lon=record["lon"],
+                                climate_region_code=record["climate_region_code"],
+                                climate_region_name=record["climate_region_name"],
                                 pcodes=record["pcodes"],
-                                lead_time=record["lead_time"],
-                                discharge_mean=record["discharge_mean"],
-                                discharge_ensemble=record["discharge_ensemble"],
                             )
-                        elif data_type == "forecast-station":
-                            data_unit = ForecastStationDataUnit(
-                                station_code=record["station_code"],
-                                station_name=record["station_name"],
-                                lat=record["lat"],
-                                lon=record["lon"],
-                                pcodes=record["pcodes"],
-                                lead_time=record["lead_time"],
-                                forecasts=record["forecasts"],
-                                triggered=record["triggered"],
-                                return_period=record["return_period"],
-                                alert_class=record["alert_class"],
-                            )
-                        elif data_type == "threshold-station":
-                            data_unit = ThresholdStationDataUnit(
-                                station_code=record["station_code"],
-                                station_name=record["station_name"],
-                                lat=record["lat"],
-                                lon=record["lon"],
-                                pcodes=record["pcodes"],
-                                thresholds=record["thresholds"],
-                            )
+            
                         else:
                             raise ValueError(f"Invalid data type {data_type}")
                         data_units.append(data_unit)
                 if (
-                    data_type == "discharge"
-                    or data_type == "forecast"
-                    or data_type == "threshold"
+                    data_type == "seasonal-rainfall-forecast" #  or data_type == "climate-region"
                 ):
                     adm_levels = list(
                         set([data_unit.adm_level for data_unit in data_units])
@@ -763,7 +705,7 @@ class Load:
                     )
                     datasets.append(dataset)
                 else:
-                    dataset = StationDataSet(
+                    dataset = ClimateRegionDataSet(
                         country=country,
                         timestamp=timestamp,
                         data_units=data_units,
