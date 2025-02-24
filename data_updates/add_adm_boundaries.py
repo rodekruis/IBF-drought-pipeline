@@ -22,7 +22,7 @@ def add_admin_boundaries():
     for lvl in [1, 2, 3, 4]:
         print(f"starting level {lvl}")
         gdf = gpd.read_file(
-            rf"C:\Users\JMargutti\OneDrive - Rode Kruis\Rode Kruis\shapefiles\adm{lvl}_polygons.gpkg\adm{lvl}_polygons.gpkg"
+            rf"***\shapefiles\adm{lvl}_polygons.gpkg\adm{lvl}_polygons.gpkg"
         )
         gdf = gdf[["geometry", "adm0_src", f"adm{lvl}_src", f"adm{lvl}_name"]]
         gdf = gdf.rename(columns={f"adm{lvl}_src": f"adm{lvl}_pcode"})

@@ -19,7 +19,7 @@ class Settings:
     Settings (URLs, constants, etc.)
     """
 
-    def __init__(self, path_or_url: str = DEFAULT_CONFIG_PATH):
+    def __init__(self, path_or_url: str):# = DEFAULT_CONFIG_PATH):
         self.setting_source: str = "yaml"
         self.setting_path: str = path_or_url
         if not os.path.exists(self.setting_path) and not is_url(self.setting_path):

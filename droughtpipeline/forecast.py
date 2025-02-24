@@ -169,7 +169,7 @@ class Forecast:
     def __compute_triggers(self):
         """Determine if trigger level is reached, its probability, and the alert class"""
 
-        country = self.data.rainfall_climateregion.country
+        country = self.data.threshold_climateregion.country
 
         # remove this line if we are uploading for mulltiple triggers 
 
@@ -196,38 +196,57 @@ class Forecast:
         climate_regions= {}
 
         current_month = date.today().strftime('%b')  # 'Feb' for February check if this can be passed from settings 
-
-        for entry in self.settings.get_country_setting(country, "Climate_Region"):
-            leadtimes = entry['leadtime'].get(current_month, [])
-            for seasonLeadtime in leadtimes:
-                season = next(iter(seasonLeadtime))
-                leadtime = seasonLeadtime[season].split('-')[0]
-                climateRegionCode = seasonLeadtime.get('climate-region-code')
-                
+ 
+ 
+        
+        for entry in self.settings.get_country_setting(country,"Climate_Region"):
+ 
+            climateRegionCode=entry['climate-region-code'] 
+            for key, value in entry['leadtime'][current_month][0].items():
                 if climateRegionCode is not None:
                     climate_regions[climateRegionCode] = {
-                        'season': season,
-                        'leadtime': int(leadtime)
-                    }
+                            'climateregionname': entry['name'],
+                            'season': key,
+                            'leadtime': int(value.split('-')[0])}
+                else:
+                    raise ValueError("climate region not defined in config file ")
+ 
+ 
 
 
         #for climateregion in self.data.rainfall_climateregion.get_climateregions(): #change to rainfall_climateregion
+        adm_level_= self.settings.get_country_setting(country, "admin-levels") 
+        adm_level=adm_level_ #if multiple admin levels are defined in cofig file reflect the change here 
    
 
         for climateregion,climateregionVars in climate_regions.items():
             lead_time=climateregionVars['leadtime']
             season=climateregionVars['season']
-            rainfall_data_unit = self.data.rainfall_admin.get_data_unit(
-                    climateregion, lead_time
-                )
             
-            for pcode in rainfall_data_unit.get_pcodes():
-                rain_data_unit = rain_data_unit.get_data_unit(pcode)   
-                tercile_lower=rain_data_unit.tercile_lower
-                rainfall_forecast=rain_data_unit.rainfall_forecast
+            
+            pcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateregion).pcodes
+
+            #climateRegionName= self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).climate_region_name	
+
+            climateRegionPcodes=pcodes[f'{adm_level_}']
+            
+            #rainfall_data_unit = self.data.forecast_admin.get_data_unit( climateregion, lead_time)
+            #rainfall_data_unit1 = self.data.rainfall_admin.get_data_unit(climateregion, lead_time)
+            
+            
+            for pcode in climateRegionPcodes:# rainfall_data_unit.get_pcodes():
+                rainfall_data_unit = self.data.rainfall_admin.get_data_unit(pcode, lead_time+1)
+                print(rainfall_data_unit)
+                print("###################")
+                print(pcode)
+                rain_data_unit = rainfall_data_unit#.get_data_unit(pcode)   
+                tercile_lower=rain_data_unit.tercile_lower 
+                #rainfall_forecast=rain_data_unit.rainfall_forecast
                 likelihood=rain_data_unit.likelihood
-                triggered=rain_data_unit.trigger,       
-                adm_level = rain_data_unit.adm_level
+                triggered=rain_data_unit.triggered,       
+                #adm_level = rain_data_unit.adm_level
+
+                print(adm_level,tercile_lower,likelihood,triggered)
 
                 alert_class = classify_alert(
                     triggered,
@@ -246,7 +265,7 @@ class Forecast:
                     alert_class=alert_class,
                     likelihood=likelihood,
                     tercile_lower=tercile_lower,
-                    rainfall_forecast=rainfall_forecast,
+                    #rainfall_forecast=rainfall_forecast,
 
                 )
                 self.data.forecast_admin.upsert_data_unit(forecast_data_unit)
@@ -272,12 +291,12 @@ class Forecast:
             with rasterio.open(flood_raster_lead_time) as dataset:
                 # Read the dataset's valid data mask as a ndarray.
                 image = dataset.read(1).astype(np.float32)
-                image[image >= self.settings.get_setting("minimum_flood_depth")] = 1
+                image[image >= self.settings.get_setting("minimum_for_drought_extent")] = 1
                 rasterio_shapes = shapes(
                     image, transform=dataset.transform
                 )  # convert flood extent raster to vector (list of shapes)
                 for geom, val in rasterio_shapes:
-                    if val >= self.settings.get_setting("minimum_flood_depth"):
+                    if val >= self.settings.get_setting("minimum_for_drought_extent"):
                         flood_shapes.append(shape(geom))
             # clip population density raster with flood shapes and save the result
             if len(flood_shapes) > 0:
@@ -296,7 +315,7 @@ class Forecast:
         self.__compute_affected_pop_raster()
 
         # calculate affected population per admin division
-        for adm_lvl in self.data.forecast_admin.adm_levels:
+        for adm_lvl in [self.data.forecast_admin.adm_levels]:
             # get adm boundaries
             gdf_adm = self.load.get_adm_boundaries(
                 self.data.forecast_admin.country, adm_lvl

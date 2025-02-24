@@ -147,7 +147,7 @@ class Extract:
         logging.info("finished downloading ECMWF data")
 
     def calculate_percentage_below_zero(self,ds, threshold):
-        percentage = (ds.where(ds < 0).notnull().sum(dim='number') / ds.sizes['number']) * 100
+        percentage = (ds.where(ds < 0).notnull().sum(dim='number') / ds.sizes['number']) 
         return (percentage > threshold).astype(int)
 
     def save_to_geotiff(self,data_array):
@@ -170,7 +170,7 @@ class Extract:
 
         # Loop through each forecast month and save to a separate GeoTIFF file
         for i, month in enumerate(forecast_months):
-            output_file = f"{self.outputPathGrid}/drought_extent_{month}_month.tif"
+            output_file = f"{self.outputPathGrid}/drought_extent_{month-1}_month.tif"
             data = data_array.sel(forecastMonth=month).values
 
             with rasterio.open(
@@ -446,7 +446,7 @@ class Extract:
 
             for leadtime in forecastData['tercile_lower'].keys():
                 for pcode in filtered_gdf.placeCode.unique():
-                    self.data.forecast_admin.upsert_data_unit(
+                    self.data.rainfall_admin.upsert_data_unit(
                         ForecastDataUnit(
                             climate_region_code=climateRegion,
                             climate_region_name=climateRegionName,
@@ -455,7 +455,7 @@ class Extract:
                             tercile_lower=forecastData['tercile_lower'][leadtime],
                             tercile_upper=forecastData['tercile_upper'][leadtime],
                             rainfall_forecast=forecastData['forecast'][leadtime],
-                            trigger=data_dict[leadtime]['triggerStatus'],
+                            triggered=data_dict[leadtime]['triggerStatus'],
                             likelihood=data_dict[leadtime]['triggerForecast'],
                         )
                     )        

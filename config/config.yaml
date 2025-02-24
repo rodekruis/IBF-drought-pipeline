@@ -17,6 +17,7 @@
 
 droughts: 
   no_ensemble_members: 51  # number of ensemble members to consider
+  minimum_for_drought_extent: 0.01  # minimum probability for drought extent 
  
 
 auxiliary:

@@ -28,7 +28,7 @@ class Pipeline:
         self.load = Load(settings=settings, secrets=secrets)
         self.data = PipelineDataSets(country=country, settings=settings)
 
-        self.data.forecast_admin = self.load.get_pipeline_data(
+        self.data.forecast_admin1 = self.load.get_pipeline_data(
             data_type="seasonal-rainfall-forecast", country=self.country
         )
 
