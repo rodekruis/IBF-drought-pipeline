@@ -127,7 +127,8 @@ class ForecastDataUnit(AdminDataUnit):
         self.tercile_upper: float = kwargs.get("tercile_upper", None)
         self.forecast: list = kwargs.get("forecast", None)
         self.season: str = kwargs.get("season", None)
-        self.climate_region_code: str = kwargs.get("climate_region_code", None)
+        self.climate_region_code: int = kwargs.get("climate_region_code", None)
+        self.climate_region_name: str = kwargs.get("climate_region_name", None)
         ''' 
 
         forecast_data = kwargs.get("forecast", {})
@@ -142,7 +143,7 @@ class ForecastDataUnit(AdminDataUnit):
         self.pop_affected: int = kwargs.get("pop_affected", 0)
         self.pop_affected_perc: float = kwargs.get("pop_affected_perc", 0.0)
         self.triggered: bool = kwargs.get("triggered", None)
-        self.likelihood: bool = kwargs.get("likelihood", None)
+        self.likelihood: float = kwargs.get("likelihood", None)
         self.return_period: float = kwargs.get("return_period", None)
         self.alert_class: str = kwargs.get("alert_class", None)
 
@@ -198,6 +199,12 @@ class AdminDataSet:
             return list(
                 set([x.pcode for x in self.data_units if x.adm_level == adm_level])
             )
+            
+    def get_climate_region_codes(self):
+        """Return list of unique climate_region_code """
+        return list(
+                set([x.climate_region_code for x in self.data_units if hasattr(x, "climate_region_code")])
+        )
 
     def get_lead_times(self):
         """Return list of unique lead times"""
@@ -246,6 +253,31 @@ class AdminDataSet:
             )
         else:
             return bdu
+            
+    def get_data_unit_climate_region(self, climate_region_code: str, lead_time: int = None) -> AdminDataUnit:
+        """Get data unit by pcode and optionally by lead time"""
+        if not self.data_units:
+            raise ValueError("Data units not found")
+        if lead_time is not None:
+            bdu = next(
+                filter(
+                    lambda x: x.climate_region_code == climate_region_code and x.lead_time == lead_time,
+                    self.data_units,
+                ),
+                None,
+            )
+        else:
+            bdu = next(
+                filter(lambda x: x.climate_region_code == climate_region_code, self.data_units),
+                None,
+            )
+        if not bdu:
+            raise ValueError(
+                f"Data unit with pcode {climate_region_code} and lead_time {lead_time} not found"
+            )
+        else:
+            return bdu
+            
 
     def upsert_data_unit(self, data_unit: AdminDataUnit):
         """Add data unit; if it already exists, update it"""
@@ -308,6 +340,31 @@ class ClimateRegionDataSet:
         if not bdu:
             raise ValueError(f"Data unit with climate_region_code {climate_region_code} not found")
         return bdu
+        
+        
+    def get_climate_region_data_unit(self, climate_region_code: str, lead_time: int = None) -> AdminDataUnit:
+        """Get data unit by climate_region_code and optionally by lead time"""
+        if not self.data_units:
+            raise ValueError("Data units not found")
+        if lead_time is not None:
+            bdu = next(
+                filter(
+                    lambda x: x.climate_region_code == climate_region_code and x.lead_time == lead_time,
+                    self.data_units,
+                ),
+                None,
+            )
+        else:
+            bdu = next(
+                filter(lambda x: x.climate_region_code == climate_region_code, self.data_units),
+                None,
+            )
+        if not bdu:
+            raise ValueError(
+                f"Data unit with climate_region_code {climate_region_code} and lead_time {lead_time} not found"
+            )
+        else:
+            return bdu
 
     def get_data_units(self, lead_time: int = None, adm_level: int = None):
         """Return list of data units filtered by lead time and/or admin level"""
@@ -384,6 +441,12 @@ class PipelineDataSets:
             country=self.country,
             timestamp=datetime.today()
         )
+        
+        self.forecast_climateregion = ClimateRegionDataSet(
+            country=self.country,
+            timestamp=datetime.today()
+        )
+        
 
         self.forecast_admin = AdminDataSet(
             country=self.country,

@@ -28,9 +28,7 @@ class Pipeline:
         self.load = Load(settings=settings, secrets=secrets)
         self.data = PipelineDataSets(country=country, settings=settings)
 
-        self.data.forecast_admin1 = self.load.get_pipeline_data(
-            data_type="seasonal-rainfall-forecast", country=self.country
-        )
+       
 
         self.data.threshold_climateregion = self.load.get_pipeline_data(data_type="climate-region", country=self.country )
         
@@ -81,7 +79,7 @@ class Pipeline:
                 )
                 ''' 
         else:
-            logging.info(f"get ecmwf data from storage")
+            logging.info(f"get ecmwf data from storage") # for ecmwf seasonal forecast therer is no need to store the forecast data on 
             ''' 
             self.data.discharge_admin = self.load.get_pipeline_data(
                 data_type="discharge",
@@ -101,14 +99,14 @@ class Pipeline:
             logging.info("forecast drought")
             self.forecast.compute_forecast()
             if save:
-                logging.info("save flood forecasts to storage")
+                logging.info("save drought forecasts to storage")
                 self.load.save_pipeline_data(
                     data_type="seasonal-rainfall-forecast", dataset=self.data.forecast_admin
                 )
 
         if send:
             if not forecast:
-                logging.info("get flood forecasts from storage")
+                logging.info("get drought forecasts from storage")
                 self.data.forecast_admin = self.load.get_pipeline_data(
                     data_type="seasonal-rainfall-forecast",
                     country=self.country,
@@ -126,8 +124,7 @@ class Pipeline:
             logging.info("send data to IBF API")
             self.load.send_to_ibf_api(
                 forecast_data=self.data.forecast_admin,
-                #discharge_data=self.data.discharge_admin,
-                #forecast_station_data=self.data.forecast_station,
-                #discharge_station_data=self.data.discharge_station,
-                flood_extent=self.forecast.flood_extent_raster,
+                threshold_climateregion=self.data.threshold_climateregion,
+                forecast_climateregion=self.data.forecast_climateregion,
+                drought_extent=self.forecast.drought_extent_raster,
             )

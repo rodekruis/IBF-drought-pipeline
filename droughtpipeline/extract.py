@@ -150,7 +150,7 @@ class Extract:
         percentage = (ds.where(ds < 0).notnull().sum(dim='number') / ds.sizes['number']) 
         return (percentage > threshold).astype(int)
 
-    def save_to_geotiff(self,data_array):
+    def save_to_geotiff(self,data_array,country: str = None):
         """
         Save each forecast month of the data array to a separate GeoTIFF file.
 
@@ -170,7 +170,7 @@ class Extract:
 
         # Loop through each forecast month and save to a separate GeoTIFF file
         for i, month in enumerate(forecast_months):
-            output_file = f"{self.outputPathGrid}/drought_extent_{month-1}_month.tif"
+            output_file = f"{self.outputPathGrid}/drought_extent_{month}_month_{country}.tif"
             data = data_array.sel(forecastMonth=month).values
 
             with rasterio.open(
@@ -185,6 +185,25 @@ class Extract:
                 transform=transform,
             ) as dst:
                 dst.write(data, 1)
+            # If month is 1, also write a file for month 0 we probably should not be doing this here. 
+            # we discussed with IBF team that we will not upload 
+            if month == 1:
+                output_file_zero = f"{self.outputPathGrid}/drought_extent_0_month_{country}.tif"
+                data_zero = data_array.sel(forecastMonth=month).values
+
+                with rasterio.open(
+                    output_file_zero,
+                    'w',
+                    driver='GTiff',
+                    height=data_zero.shape[0],
+                    width=data_zero.shape[1],
+                    count=1,
+                    dtype=data_zero.dtype,
+                    crs='+proj=latlong',
+                    transform=transform,
+                ) as dst_zero:
+                    dst_zero.write(data_zero, 1)
+
 
     def subset_region(self,ds, region, latname='latitude', lonname='longitude'):
         lon1 = region[1] % 360
@@ -217,6 +236,7 @@ class Extract:
         logging.info(f"Extract ecmwf data for country {country}")
         
         admin_level_= self.settings.get_country_setting(country, "admin-levels")
+ 
         triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']
 
         #trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
@@ -226,7 +246,7 @@ class Extract:
         trigger_probability=self.settings.get_country_setting(country, "trigger_model")["trigger-on-minimum-probability-drought-extent"] # for the ensamble mebers below average to define drought extent
         trigger_level=self.settings.get_country_setting(country, "trigger_model")["trigger-on-minimum-probability"] # for the ensamble mebers below tercile to define trigger status
 
-        geofile=self.load.get_adm_boundaries(country,admin_level_)
+        
 
         # the climate analysis might be happenig at admin level 1 or 2 
         '''
@@ -243,31 +263,22 @@ class Extract:
         # get climate regions for each country         
         climateRegions=self.data.threshold_climateregion.get_climate_region_codes()
 
-        climateRegionPcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=1).pcodes
+        #climateRegionPcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=1).pcodes
         
         
  
 
         for climateRegion in climateRegions:#merged_data['Climate_Region_code'].unique().tolist():
             pcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).pcodes
+            admin_level_=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).adm_level
             climateRegionName= self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).climate_region_name
-            
+
+            geofile=self.load.get_adm_boundaries(country,admin_level_)
             climateRegionPcodes=pcodes[f'{admin_level_}']
-            if admin_level_==1:
-                filtered_gdf = geofile[geofile['adm1_pcode'].isin(climateRegionPcodes)]
-                filtered_gdf['placeCode']= filtered_gdf['adm1_pcode']
-            elif admin_level_==2:
-                filtered_gdf = geofile[geofile['adm2_pcode'].isin(climateRegionPcodes)]
-                filtered_gdf['placeCode']= filtered_gdf['adm2_pcode']
-            elif admin_level_==3:
-                filtered_gdf = geofile[geofile['adm3_pcode'].isin(climateRegionPcodes)]
-                filtered_gdf['placeCode']= filtered_gdf['adm3_pcode']
-            elif admin_level_==4:
-                filtered_gdf = geofile[geofile['adm4_pcode'].isin(climateRegionPcodes)]
-                filtered_gdf['placeCode']= filtered_gdf['adm4_pcode']
-            else:
-                raise ValueError(f" No data matching {admin_level_} found in the admin geo file.")
-            
+
+            filtered_gdf = geofile[geofile[f'adm{admin_level_}_pcode'].isin(climateRegionPcodes)]
+            filtered_gdf['placeCode']= filtered_gdf[f'adm{admin_level_}_pcode']             
+                      
                 
                 
             
@@ -278,9 +289,10 @@ class Extract:
             # Get the extent of the filtered geofile    
             try:
                 lon_min, lat_min, lon_max, lat_max = filtered_gdf.total_bounds  # [minx, miny, maxx, maxy]
-                print(f"Filtered Extent - Latitude Min: {lat_min}, Longitude Min: {lon_min}, Latitude Max: {lat_max}, Longitude Max: {lon_max}")
+          
             except ValueError as e:
-                print(e)
+                logging.error(f"Error in extracting extent of the filtered geofile: {e}")
+             
             #sub_region (tuple): Subregion coordinates (North, West, South, East).
             
             sub_region = (lat_max, lon_min, lat_min, lon_max)
@@ -366,9 +378,10 @@ class Extract:
             sub_anomalies = self.subset_region(anomalies_tp, sub_region)
 
             #to determin aresas where the forecasted rain is below average for 70% of the ensemble members
-            percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(sub_anomalies,trigger_probability)     
+            #percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(sub_anomalies,trigger_probability)     
+            percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(anomalies_tp,trigger_probability)
 
-            self.save_to_geotiff(percentage_below_average_per_gridcell)
+            self.save_to_geotiff(percentage_below_average_per_gridcell,country)
 
 
             # Apply weighted mean for the region
@@ -445,6 +458,8 @@ class Extract:
             logging.info(f"finished extraction of rainfall forecast for climate region{climateRegion}")
 
             for leadtime in forecastData['tercile_lower'].keys():
+
+                
                 for pcode in filtered_gdf.placeCode.unique():
                     self.data.rainfall_admin.upsert_data_unit(
                         ForecastDataUnit(
@@ -454,11 +469,29 @@ class Extract:
                             lead_time=leadtime,
                             tercile_lower=forecastData['tercile_lower'][leadtime],
                             tercile_upper=forecastData['tercile_upper'][leadtime],
-                            rainfall_forecast=forecastData['forecast'][leadtime],
+                            forecast=forecastData['forecast'][leadtime],
                             triggered=data_dict[leadtime]['triggerStatus'],
                             likelihood=data_dict[leadtime]['triggerForecast'],
                         )
-                    )        
+                    )
+                    # 
+                    #If LEADTIME is 1, also write a file for month 0 we probably should not be doing this here. 
+                    # we discussed with IBF team that we will not upload  FOR NOW CREATING A FILE FOR LEADTIME 0
+                    if leadtime == 1:
+                        self.data.rainfall_admin.upsert_data_unit(
+                        ForecastDataUnit(
+                            climate_region_code=climateRegion,
+                            climate_region_name=climateRegionName,
+                            pcode=pcode,
+                            lead_time=0,
+                            tercile_lower=forecastData['tercile_lower'][leadtime],
+                            tercile_upper=forecastData['tercile_upper'][leadtime],
+                            forecast=forecastData['forecast'][leadtime],
+                            triggered=data_dict[leadtime]['triggerStatus'],
+                            likelihood=data_dict[leadtime]['triggerForecast'],
+                        )
+                    )
+ 
 
 
 

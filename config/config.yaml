@@ -32,8 +32,10 @@ databases:
 
 countries:
   - name: KEN
-    admin-levels: 1
+    admin-levels:
+      - 1
     trigger-on-lead-time: 3 
+    pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
       min: 0.65
@@ -73,8 +75,10 @@ countries:
           Dec: 
             - MAM: "3-month"
   - name: LSO
-    admin-levels: 1
+    admin-levels: 
+      - 1
     trigger-on-lead-time: 3 # number of months to trigger alert
+    pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
       min: 0.65
@@ -82,7 +86,7 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-probability: 0.7 # based on ensamble member probability compared against lower tercile 
       trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
       trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
     Climate_Region:
@@ -114,8 +118,10 @@ countries:
           Dec: 
             - WET_SEASON: "0-month"
   - name: UGA
-    admin-levels: 2
+    admin-levels:
+      - 2
     trigger-on-lead-time: 3 # number of months to trigger alert
+    pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
       min: 0.65
@@ -155,8 +161,10 @@ countries:
           Dec: 
             - Long_Rains: "3-month"
   - name: ETH
-    admin-levels: 2
+    admin-levels:
+      - 2
     trigger-on-lead-time: 3 # number of months to trigger alert
+    pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
       min: 0.65
@@ -164,7 +172,7 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-probability: 0.8 # based on ensamble member probability compared against lower tercile 
       trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
       trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
     Climate_Region:
@@ -278,8 +286,10 @@ countries:
             - MAM: "3-month"
 
   - name: ZWE
-    admin-levels: 1
+    admin-levels:
+      - 1
     trigger-on-lead-time: 3 # number of months to trigger alert
+    pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
       min: 0.65

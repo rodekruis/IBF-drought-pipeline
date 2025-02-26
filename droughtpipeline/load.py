@@ -102,6 +102,20 @@ def alert_class_to_threshold(alert_class: str, triggered: bool) -> float:
             return 0.7
     else:
         raise ValueError(f"Invalid alert class {alert_class}")
+    
+def forecast_trigger_status(triggered: bool, trigger_class: str) -> float:
+    """determine if forecast is a trigger for IBF portal"""
+    if triggered:
+        if trigger_class == "disabled":
+            return 0
+        else:
+            return 1
+    else:
+        raise ValueError(f"Invalid alert class {triggered}")
+
+
+
+
 
 
 class Load:
@@ -280,10 +294,9 @@ class Load:
     def send_to_ibf_api(
         self,
         forecast_data: AdminDataSet,
-        discharge_data: AdminDataSet,
-        forecast_station_data: StationDataSet,
-        discharge_station_data: StationDataSet,
-        flood_extent: str = None,
+        threshold_climateregion: ClimateRegionDataSet,
+        forecast_climateregion: ClimateRegionDataSet,
+        drought_extent: str = None,
         upload_time: str = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
     ):
         """Send flood forecast data to IBF API"""
@@ -292,68 +305,115 @@ class Load:
         trigger_on_lead_time = self.settings.get_country_setting(
             country, "trigger-on-lead-time"
         )
-        trigger_on_return_period = self.settings.get_country_setting(
-            country, "trigger-on-return-period"
-        )
-        threshold_station_data = self.get_pipeline_data(
-            data_type="threshold-station", country=country
-        )
+        admin_levels=self.settings.get_country_setting(
+            country, "admin-levels"
+            )
+         
+        disasterType="droughts"
+        pipeline_will_trigger_portal = self.settings.get_country_setting(country, "pipeline-will-trigger-portal")
+  
+            
+        
 
         processed_stations, processed_pcodes, triggered_lead_times = [], [], []
+        #climateregions=forecast_data.get_climate_region_codes()
 
-        # START EVENT LOOP
-        for station_code in forecast_station_data.get_station_codes():
+        climate_regions= {}
+        lead_times_list = []
+        climate_region_codes=[] 
+        DEFAULT_CURRENT_MONTH  = date.today().strftime('%b')
 
-            # determine events
+
+        for entry in self.settings.get_country_setting(country,"Climate_Region"):
+            climateRegionCode=entry['climate-region-code'] 
+            if climateRegionCode is None:
+                raise ValueError("Climate region not defined in config file")
+            
+            for key, value in entry['leadtime'][DEFAULT_CURRENT_MONTH][0].items():
+                 leadtime_value = int(value.split('-')[0])
+                 if climateRegionCode is not None:
+                    climate_regions[climateRegionCode] = {
+                                'climateregionname': entry['name'],
+                                'season': key,
+                                'leadtime': leadtime_value}
+                    
+            lead_times_list.append(leadtime_value)
+            climate_region_codes.append(climateRegionCode) 
+
+        
+   
+        for climate_region_code,climateregionVars in climate_regions.items():
             events = {}
-            for lead_time in range(1, 8):
-                if (
-                    forecast_station_data.get_data_unit(
-                        station_code, lead_time
-                    ).alert_class
-                    != "no"
-                ):
+            lead_time=climateregionVars['leadtime']
+            season=climateregionVars['season']
+
+ 
+            
+            season_name = forecast_climateregion.get_climate_region_data_unit(
+                climate_region_code, lead_time
+                ).season
+            
+            climate_region_name=forecast_climateregion.get_climate_region_data_unit(
+                climate_region_code, lead_time
+                ).climate_region_name
+            
+
+            if climate_region_name.split('_')[0] in ['National','national']:
+                event_name = season_name 
+            else:
+                event_name = f"{climate_region_name} {season_name}"  
+            
+
+            if (forecast_climateregion.get_climate_region_data_unit(
+                climate_region_code, lead_time
+                ).alert_class!= "no"):
                     events[lead_time] = "alert"
-            for lead_time in range(1, 8):
-                if forecast_station_data.get_data_unit(
-                    station_code, lead_time
-                ).triggered:
+
+            if (forecast_climateregion.get_climate_region_data_unit(
+                climate_region_code, lead_time
+                ).triggered):
                     events[lead_time] = "trigger"
                     triggered_lead_times.append(lead_time)
+
+ 
             if not events:
                 continue
-            events = dict(sorted(events.items()))
+
+            events = dict(sorted(events.items()))           
+
+
+            # START EVENT LOOP
+            #for climate_region_code in climate_region_codes:#forecast_data.get_climate_region_codes():
 
             for lead_time_event, event_type in events.items():
 
                 # set as alert if lead time is greater than trigger_on_lead_time
                 if lead_time_event > trigger_on_lead_time and event_type == "trigger":
                     event_type = "alert"
-                station_name = forecast_station_data.get_data_unit(
-                    station_code, trigger_on_lead_time
-                ).station_name
-                event_name = str(station_name) if station_name else str(station_code)
-                if event_name == "" or event_name == "None" or event_name == "Na":
-                    event_name = str(station_code)
+                
+
 
                 logging.info(
                     f"event {event_name}, type '{event_type}', lead time {lead_time_event}"
                 )
-                forecast_station = forecast_station_data.get_data_unit(
-                    station_code, lead_time_event
-                )
-                threshold_station = threshold_station_data.get_data_unit(station_code)
+
+                
+
+                pcodes=threshold_climateregion.get_data_unit(climate_region_code).pcodes      
 
                 # send exposure data: admin-area-dynamic-data/exposure
                 indicators = [
                     "population_affected",
                     "population_affected_percentage",
-                    "alert_threshold",
+                    #"alert_threshold",
+                    "forecast_trigger",
+                    "forecast_severity",
                 ]
+
                 for indicator in indicators:
-                    for adm_level in forecast_station.pcodes.keys():
+                    for adm_level in admin_levels:
                         exposure_pcodes = []
-                        for pcode in forecast_station.pcodes[adm_level]:
+                        for pcode in pcodes[adm_level]: # this admin level should come from config file? 
                             forecast_admin = forecast_data.get_data_unit(
                                 pcode, lead_time_event
                             )
@@ -362,24 +422,29 @@ class Load:
                                 amount = forecast_admin.pop_affected
                             elif indicator == "population_affected_percentage":
                                 amount = forecast_admin.pop_affected_perc
-                            elif indicator == "alert_threshold":
-                                amount = alert_class_to_threshold(
-                                    alert_class=forecast_admin.alert_class,
+                            elif indicator == "forecast_severity":
+                                amount = (
+                                        1 if event_type == "trigger" else 0
+                                    )
+                            elif indicator == "forecast_trigger":
+                                amount = forecast_trigger_status(
                                     triggered=(
                                         True if event_type == "trigger" else False
                                     ),
+                                    trigger_class=pipeline_will_trigger_portal,
                                 )
+
                             exposure_pcodes.append(
                                 {"placeCode": pcode, "amount": amount}
                             )
                             processed_pcodes.append(pcode)
                         body = {
                             "countryCodeISO3": country,
-                            "leadTime": f"{lead_time_event}-day",
+                            "leadTime": f"{lead_time_event}-month",
                             "dynamicIndicator": indicator,
                             "adminLevel": int(adm_level),
                             "exposurePlaceCodes": exposure_pcodes,
-                            "disasterType": "floods",
+                            "disasterType": disasterType,
                             "eventName": event_name,
                             "date": upload_time,
                         }
@@ -388,50 +453,11 @@ class Load:
                         )
                 processed_pcodes = list(set(processed_pcodes))
 
-                # GloFAS station data: point-data/dynamic
-                # 1 call per alert/triggered station, and 1 overall (to same endpoint) for all other stations
-                if event_type != "none":
-                    station_forecasts = {
-                        "forecastLevel": [],
-                        "eapAlertClass": [],
-                        "forecastReturnPeriod": [],
-                        "triggerLevel": [],
-                    }
-                    discharge_station = discharge_station_data.get_data_unit(
-                        station_code, lead_time_event
-                    )
-                    for indicator in station_forecasts.keys():
-                        value = None
-                        if indicator == "forecastLevel":
-                            value = int(discharge_station.discharge_mean or 0)
-                        elif indicator == "eapAlertClass":
-                            value = forecast_station.alert_class
-                            if event_type == "alert" and value == "max":
-                                value = "med"
-                        elif indicator == "forecastReturnPeriod":
-                            value = forecast_station.return_period
-                        elif indicator == "triggerLevel":
-                            value = int(
-                                threshold_station.get_threshold(
-                                    trigger_on_return_period
-                                )
-                            )
-                        station_data = {"fid": station_code, "value": value}
-                        station_forecasts[indicator].append(station_data)
-                        body = {
-                            "leadTime": f"{lead_time_event}-day",
-                            "key": indicator,
-                            "dynamicPointData": station_forecasts[indicator],
-                            "pointDataCategory": "glofas_stations",
-                            "disasterType": "floods",
-                            "date": upload_time,
-                        }
-                        self.ibf_api_post_request("point-data/dynamic", body=body)
-                    processed_stations.append(station_code)
+
 
             # send trigger per lead time: event/triggers-per-leadtime
             triggers_per_lead_time = []
-            for lead_time in range(0, 8):
+            for lead_time in set(lead_times_list):#range(0, 3):
                 is_trigger, is_trigger_or_alert = False, False
                 for lead_time_event, event_type in events.items():
                     if event_type == "trigger" and lead_time >= lead_time_event:
@@ -450,42 +476,42 @@ class Load:
             body = {
                 "countryCodeISO3": country,
                 "triggersPerLeadTime": triggers_per_lead_time,
-                "disasterType": "floods",
+                "disasterType": disasterType,
                 "eventName": event_name,
                 "date": upload_time,
             }
             self.ibf_api_post_request("event/triggers-per-leadtime", body=body)
 
-        # END OF EVENT LOOP
-        ###############################################################################################################
+            # END OF EVENT LOOP
+            ###############################################################################################################
 
         # flood extent raster: admin-area-dynamic-data/raster/floods
         self.rasters_sent = []
-        for lead_time in range(0, 8):
-            flood_extent_new = flood_extent.replace(
-                ".tif", f"_{lead_time}-day_{country}.tif"
-            )
+        for lead_time in set(lead_times_list):
+            drought_extent_new = drought_extent.replace(".tif", f"_{lead_time}_month_{country}.tif" )
             if lead_time in triggered_lead_times:
                 shutil.copy(
-                    flood_extent.replace(".tif", f"_{lead_time}.tif"), flood_extent_new
+                    drought_extent.replace(".tif", f"_{lead_time}.tif"), drought_extent_new
                 )
+                
             else:
-                shutil.copy(
-                    flood_extent.replace(".tif", f"_empty.tif"),
-                    flood_extent_new,
-                )
-            self.rasters_sent.append(flood_extent_new)
-            files = {"file": open(flood_extent_new, "rb")}
-            self.ibf_api_post_request(
-                "admin-area-dynamic-data/raster/floods", files=files
-            )
+                logging.info(f"no trigger for lead time {lead_time}")
+                #shutil.copy(drought_extent.replace(".tif", f"_empty.tif"),  drought_extent_new, )
+            self.rasters_sent.append(drought_extent_new)
+            files = {"file": open(drought_extent_new, "rb")}
+            self.ibf_api_post_request( "admin-area-dynamic-data/raster/droughts", files=files )
+
+
 
         # send empty exposure data
         if len(processed_pcodes) == 0:
             indicators = [
                 "population_affected",
                 "population_affected_percentage",
-                "alert_threshold",
+                #"alert_threshold",
+                "forecast_trigger",
+                "forecast_severity",
+
             ]
             for indicator in indicators:
                 for adm_level in forecast_data.adm_levels:
@@ -497,8 +523,12 @@ class Load:
                                 amount = 0
                             elif indicator == "population_affected_percentage":
                                 amount = 0.0
-                            elif indicator == "alert_threshold":
-                                amount = 0.0
+                            #elif indicator == "alert_threshold":
+                            #    amount = 0.0
+                            elif indicator == "forecast_trigger":
+                                amount = 0
+                            elif indicator == "forecast_severity":
+                                amount = 0
                             exposure_pcodes.append(
                                 {"placeCode": pcode, "amount": amount}
                             )
@@ -508,7 +538,7 @@ class Load:
                         "dynamicIndicator": indicator,
                         "adminLevel": adm_level,
                         "exposurePlaceCodes": exposure_pcodes,
-                        "disasterType": "floods",
+                        "disasterType": disasterType,
                         "eventName": None,  # this is a specific check IBF uses to establish no-trigger
                         "date": upload_time,
                     }
@@ -516,53 +546,10 @@ class Load:
                         "admin-area-dynamic-data/exposure", body=body
                     )
 
-        # send GloFAS station data for all other stations
-        station_forecasts = {
-            "forecastLevel": [],
-            "eapAlertClass": [],
-            "forecastReturnPeriod": [],
-            "triggerLevel": [],
-        }
-        for indicator in station_forecasts.keys():
-            for station_code in forecast_station_data.get_station_codes():
-                if station_code not in processed_stations:
-                    discharge_station = discharge_station_data.get_data_unit(
-                        station_code, trigger_on_lead_time
-                    )
-                    forecast_station = forecast_station_data.get_data_unit(
-                        station_code, trigger_on_lead_time
-                    )
-                    threshold_station = threshold_station_data.get_data_unit(
-                        station_code
-                    )
-                    value = None
-                    if indicator == "forecastLevel":
-                        value = int(discharge_station.discharge_mean or 0)
-                    elif indicator == "eapAlertClass":
-                        value = forecast_station.alert_class
-                    elif indicator == "forecastReturnPeriod":
-                        value = forecast_station.return_period
-                    elif indicator == "triggerLevel":
-                        value = int(
-                            threshold_station.get_threshold(trigger_on_return_period)
-                        )
-                    station_data = {"fid": station_code, "value": value}
-                    station_forecasts[indicator].append(station_data)
-
-            body = {
-                "leadTime": f"7-day",
-                "key": indicator,
-                "dynamicPointData": station_forecasts[indicator],
-                "pointDataCategory": "glofas_stations",
-                "disasterType": "floods",
-                "date": upload_time,
-            }
-            self.ibf_api_post_request("point-data/dynamic", body=body)
-
         # close events: event/close-events
         body = {
-            "countryCodeISO3": country,
-            "disasterType": "floods",
+            "countryCodeISO3": country, 
+            "disasterType": disasterType,
             "date": upload_time,
         }
         self.ibf_api_post_request("event/close-events", body=body)
@@ -570,10 +557,13 @@ class Load:
         # send notification
         body = {
             "countryCodeISO3": country,
-            "disasterType": "floods",
+            "disasterType": disasterType,
             "date": upload_time,
         }
-        self.ibf_api_post_request("notification/send", body=body)
+        #self.ibf_api_post_request("notification/send", body=body)
+        self.ibf_api_post_request("/events/process", body=body)
+        
+    
 
     def save_pipeline_data(
         self, data_type: str, dataset: AdminDataSet, replace_country: bool = False
@@ -604,7 +594,7 @@ class Load:
             user_agent="sml-api",
             user_agent_overwrite=True,
         )
-        cosmos_db = client_.get_database_client("flood-pipeline")
+        cosmos_db = client_.get_database_client("drought-pipeline")
         cosmos_container_client = cosmos_db.get_container_client(data_type)
         if replace_country:
             query = get_cosmos_query(country=dataset.country)
@@ -694,7 +684,7 @@ class Load:
                 if (
                     data_type == "seasonal-rainfall-forecast" #  or data_type == "climate-region"
                 ):
-                    adm_levels = list(
+                    adm_levels = list( 
                         set([data_unit.adm_level for data_unit in data_units])
                     )
                     dataset = AdminDataSet(
