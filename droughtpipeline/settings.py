@@ -2,9 +2,11 @@ import os
 import yaml
 from urllib.parse import urlparse
 from typing import List
+from datetime import date
 
 # Default config file path
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "./config/config.yml")
+ 
 
 def is_url(x):
     try:

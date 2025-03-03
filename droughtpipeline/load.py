@@ -309,7 +309,7 @@ class Load:
             country, "admin-levels"
             )
          
-        disasterType="droughts"
+        disasterType="drought"
         pipeline_will_trigger_portal = self.settings.get_country_setting(country, "pipeline-will-trigger-portal")
   
             
@@ -499,7 +499,7 @@ class Load:
                 #shutil.copy(drought_extent.replace(".tif", f"_empty.tif"),  drought_extent_new, )
             self.rasters_sent.append(drought_extent_new)
             files = {"file": open(drought_extent_new, "rb")}
-            self.ibf_api_post_request( "admin-area-dynamic-data/raster/droughts", files=files )
+            self.ibf_api_post_request( "admin-area-dynamic-data/raster/drought", files=files )
 
 
 
@@ -552,7 +552,7 @@ class Load:
             "disasterType": disasterType,
             "date": upload_time,
         }
-        self.ibf_api_post_request("event/close-events", body=body)
+       # self.ibf_api_post_request("event/close-events", body=body)
 
         # send notification
         body = {
@@ -561,7 +561,7 @@ class Load:
             "date": upload_time,
         }
         #self.ibf_api_post_request("notification/send", body=body)
-        self.ibf_api_post_request("/events/process", body=body)
+        self.ibf_api_post_request("events/process", body=body)
         
     
 
