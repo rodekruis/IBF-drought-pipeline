@@ -16,8 +16,8 @@
 
 
 droughts: 
-  no_ensemble_members: 51  # number of ensemble members to consider
-  minimum_for_drought_extent: 0.01  # minimum probability for drought extent 
+  #no_ensemble_members: 51  # number of ensemble members to consider
+  #minimum_for_drought_extent: 0.01  # drought extent for now is defined as binary 0/1 hence this is not unsed however it can be used to define the minimum threshold for drought extent
  
 
 auxiliary:
@@ -34,7 +34,7 @@ countries:
   - name: KEN
     admin-levels:
       - 1
-    trigger-on-lead-time: 3 
+    #trigger-on-lead-time: 3 
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
@@ -163,7 +163,7 @@ countries:
   - name: ETH
     admin-levels:
       - 2
-    trigger-on-lead-time: 3 # number of months to trigger alert
+    #trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
@@ -171,10 +171,10 @@ countries:
       med: 0.75
       max: 0.85
     trigger_model: 
-      model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.8 # based on ensamble member probability compared against lower tercile 
+      model: seasonal_rainfall_forecast_3m
+      trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
       trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
-      trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+      #trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
     Climate_Region:
       - name: Meher
         climate-region-code: 1
@@ -211,13 +211,13 @@ countries:
           Feb: 
             - FMA: "0-month"
           Mar: 
-            - JAS: "3-month"
+            - JAS: "4-month"
           Apr: 
-            - JAS: "2-month"
+            - JAS: "3-month"
           May: 
-            - JAS: "1-month"
+            - JAS: "2-month"
           Jun: 
-            - JAS: "0-month"
+            - JAS: "1-month"
           Jul: 
             - JAS: "0-month"
           Aug: 

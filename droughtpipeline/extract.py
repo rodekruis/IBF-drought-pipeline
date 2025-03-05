@@ -150,7 +150,7 @@ class Extract:
         percentage = (ds.where(ds < 0).notnull().sum(dim='number') / ds.sizes['number']) 
         return (percentage > threshold).astype(int)
 
-    def save_to_geotiff(self,data_array,country: str = None):
+    def save_to_geotiff(self,data_array,country: str = None, prefix: str = None):
         """
         Save each forecast month of the data array to a separate GeoTIFF file.
 
@@ -170,7 +170,7 @@ class Extract:
 
         # Loop through each forecast month and save to a separate GeoTIFF file
         for i, month in enumerate(forecast_months):
-            output_file = f"{self.outputPathGrid}/drought_extent_{month}_month_{country}.tif"
+            output_file = f"{self.outputPathGrid}/{prefix}_{month}-month_{country}.tif"
             data = data_array.sel(forecastMonth=month).values
 
             with rasterio.open(
@@ -188,7 +188,7 @@ class Extract:
             # If month is 1, also write a file for month 0 we probably should not be doing this here. 
             # we discussed with IBF team that we will not upload 
             if month == 1:
-                output_file_zero = f"{self.outputPathGrid}/drought_extent_0_month_{country}.tif"
+                output_file_zero = f"{self.outputPathGrid}/{prefix}_0-month_{country}.tif"
                 data_zero = data_array.sel(forecastMonth=month).values
 
                 with rasterio.open(
@@ -222,7 +222,7 @@ class Extract:
 
         return subset
 
-
+    
    
     def extract_ecmwf_data(self, country: str = None, debug: bool = False):
         """
@@ -230,45 +230,101 @@ class Extract:
         """
         if country is None:
             country = self.country   
-
-
         ### admin_level 
         logging.info(f"Extract ecmwf data for country {country}")
         
         admin_level_= self.settings.get_country_setting(country, "admin-levels")
  
-        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']
+        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']    
+        trigger_probability=self.settings.get_country_setting(country, 
+                                                              "trigger_model")["trigger-on-minimum-probability-drought-extent"] # for the ensamble mebers below average to define drought extent
+        trigger_level=self.settings.get_country_setting(country, 
+                                                        "trigger_model")["trigger-on-minimum-probability"] # for the ensamble mebers below tercile to define trigger status
+        
 
-        #trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
-        #trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
-        #trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+        logging.info("Extract seasonal forecast for each climate region")             
+        ds_hindcast = xr.open_dataset(
+            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib',
+            engine='cfgrib',
+            backend_kwargs={'time_dims': ('forecastMonth', 'time')}
+        )
     
-        trigger_probability=self.settings.get_country_setting(country, "trigger_model")["trigger-on-minimum-probability-drought-extent"] # for the ensamble mebers below average to define drought extent
-        trigger_level=self.settings.get_country_setting(country, "trigger_model")["trigger-on-minimum-probability"] # for the ensamble mebers below tercile to define trigger status
+        # Load forecast data
+        ds_forecast = xr.open_dataset(
+            f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib',
+            engine='cfgrib',
+            backend_kwargs={'time_dims': ('forecastMonth', 'time')}
+        )
 
-        
-
-        # the climate analysis might be happenig at admin level 1 or 2 
-        '''
-        filename_local = f"{self.confgPath}/{country}_climate_region_district_mapping.csv"          
-        csv_data = pd.read_csv(filename_local)
-        if admin_level_==1:
-            merged_data = geofile.merge(csv_data, left_on='adm1_pcode', right_on='placeCode')  
-        else:            
-            merged_data = geofile.merge(csv_data, left_on='adm2_pcode', right_on='placeCode')
-        '''
-        logging.info("Extract seasonal forecast for each climate region")
-                
-                
-        # get climate regions for each country         
-        climateRegions=self.data.threshold_climateregion.get_climate_region_codes()
-
-        #climateRegionPcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=1).pcodes
-        
-        
+        ########## for 3 month rolling mean
+        seas5_forecast_3m = (
+            ds_forecast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
+            .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
+            .sum()  # Calculate mean for the rolling window
+        )
  
+        ds_hindcast_3m = (
+            ds_hindcast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
+            .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
+            .sum()  # Calculate mean for the rolling window
+        )
 
-        for climateRegion in climateRegions:#merged_data['Climate_Region_code'].unique().tolist():
+        if triggermodel=='seasonal_rainfall_forecast':
+            tprate_forecast = ds_forecast['tprate']  
+            # Convert lead time into valid dates
+            valid_time = [
+                pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
+                for fcmonth in tprate_forecast.forecastMonth
+            ]
+            anomalies = ds_forecast['tprate'] - tprate_hindcast_mean
+
+            # Convert precipitation rates to accumulation
+            numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
+            anomalies = anomalies.assign_coords(valid_time=('forecastMonth', valid_time))
+            anomalies = anomalies.assign_coords(numdays=('forecastMonth', numdays))
+            anomalies_tp = anomalies * anomalies.numdays * 24 * 60 * 60 * 1000
+            anomalies_tp.attrs['units'] = 'mm'
+            anomalies_tp.attrs['long_name'] = 'Total precipitation anomaly'
+
+        elif triggermodel=='seasonal_rainfall_forecast_3m':
+            tprate_forecast = seas5_forecast_3m['tprate']
+
+            tprate_hindcast = ds_hindcast_3m['tprate']  
+            tprate_hindcast_mean = ds_hindcast_3m.mean(['number','time'])
+
+            anomalies = seas5_forecast_3m.tprate - tprate_hindcast_mean.tprate  
+            # Calculate number of days for each forecast month and add it as coordinate information to the data array
+            vt = [ pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth+1) for fcmonth in tprate_forecast.forecastMonth]
+            vts = [[thisvt+relativedelta(months=-mm) for mm in range(3)] for thisvt in vt]
+
+            numdays = [np.sum([monthrange(dd.year,dd.month)[1] for dd in d3]) for d3 in vts]
+            # Convert lead time into valid dates
+            valid_time = [
+                pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
+                for fcmonth in tprate_forecast.forecastMonth
+            ]
+
+            anomalies = anomalies.assign_coords(numdays=('forecastMonth',numdays))                
+            anomalies = anomalies.assign_coords(valid_time=('forecastMonth',valid_time))  
+            anomalies_tp = anomalies * anomalies.numdays * 24 * 60 * 60 * 1000
+            anomalies_tp.attrs['units'] = 'mm'
+            anomalies_tp.attrs['long_name'] = 'SEAS5 3-monthly total precipitation ensemble mean anomaly for 6 lead-time months'            
+
+        else:
+            raise ValueError(f"Trigger model {triggermodel} not supported")
+
+        ########################### for rainfall layer in IBF portal
+        
+        tprate_forecast_mean = tprate_forecast.mean(['number'])
+        tprate_forecast_mean = tprate_forecast_mean.assign_coords(valid_time=('forecastMonth', valid_time))
+        tprate_forecast_mean = tprate_forecast_mean.assign_coords(numdays=('forecastMonth', numdays))
+        tprate_forecast_mean = tprate_forecast_mean * tprate_forecast_mean.numdays * 24 * 60 * 60 * 1000
+        tprate_forecast_mean.attrs['units'] = 'mm'
+
+        self.save_to_geotiff(tprate_forecast_mean,country,prefix='rain_rp')
+         
+
+        for climateRegion in self.data.threshold_climateregion.get_climate_region_codes():
             pcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).pcodes
             admin_level_=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).adm_level
             climateRegionName= self.data.threshold_climateregion.get_data_unit(climate_region_code=climateRegion).climate_region_name
@@ -277,10 +333,7 @@ class Extract:
             climateRegionPcodes=pcodes[f'{admin_level_}']
 
             filtered_gdf = geofile[geofile[f'adm{admin_level_}_pcode'].isin(climateRegionPcodes)]
-            filtered_gdf['placeCode']= filtered_gdf[f'adm{admin_level_}_pcode']             
-                      
-                
-                
+            filtered_gdf['placeCode']= filtered_gdf[f'adm{admin_level_}_pcode']          
             
             #filtered_gdf = merged_data[merged_data['Climate_Region_code'] == climateRegion]
             if filtered_gdf.empty:
@@ -291,97 +344,19 @@ class Extract:
                 lon_min, lat_min, lon_max, lat_max = filtered_gdf.total_bounds  # [minx, miny, maxx, maxy]
           
             except ValueError as e:
-                logging.error(f"Error in extracting extent of the filtered geofile: {e}")
-             
-            #sub_region (tuple): Subregion coordinates (North, West, South, East).
-            
-            sub_region = (lat_max, lon_min, lat_min, lon_max)
-
-            
-
-            # Load hindcast dataset and calculate mean
-            ds_hindcast = xr.open_dataset(
-                f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib',
-                engine='cfgrib',
-                backend_kwargs={'time_dims': ('forecastMonth', 'time')}
-            )
-        
-            # Load forecast data
-            ds_forecast = xr.open_dataset(
-                f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib',
-                engine='cfgrib',
-                backend_kwargs={'time_dims': ('forecastMonth', 'time')}
-            )
-
-
-            if triggermodel=='seasonal_rainfall_forecast':
-                tprate_hindcast = ds_hindcast['tprate']
-                tprate_hindcast_mean = tprate_hindcast.mean(['number', 'time'])
-                    # Calculate anomalies
-                anomalies = ds_forecast['tprate'] - tprate_hindcast_mean
-
-                # Convert lead time into valid dates
-                valid_time = [
-                    pd.to_datetime(anomalies.time.values) + relativedelta(months=fcmonth - 1)
-                    for fcmonth in anomalies.forecastMonth
-                ]
-                anomalies = anomalies.assign_coords(valid_time=('forecastMonth', valid_time))
-
-                # Convert precipitation rates to accumulation
-                numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
-                anomalies = anomalies.assign_coords(numdays=('forecastMonth', numdays))
-
-                anomalies_tp = anomalies * anomalies.numdays * 24 * 60 * 60 * 1000
-                anomalies_tp.attrs['units'] = 'mm'
-                anomalies_tp.attrs['long_name'] = 'Total precipitation anomaly'
-
-            elif triggermodel=='seasonal_rainfall_forecast_3m':
-                ########## for 3 month rolling mean
-                seas5_forecast_3m = (
-                    ds_forecast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
-                    .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
-                    .sum()  # Calculate mean for the rolling window
-                )
-                #ds_hindcast_3m = ds_hindcast.rolling(forecastMonth=3).mean()
-
-                ds_hindcast_3m = (
-                    ds_hindcast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
-                    .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
-                    .sum()  # Calculate mean for the rolling window
-                )
-                ds_hindcast_3m_hindcast_mean = ds_hindcast_3m.mean(['number','time'])
-                anomalies = seas5_forecast_3m.tprate - ds_hindcast_3m_hindcast_mean.tprate  
-
-                # Calculate number of days for each forecast month and add it as coordinate information to the data array
-                vt = [ pd.to_datetime(anomalies.time.values) + relativedelta(months=fcmonth+1) for fcmonth in anomalies.forecastMonth]
-                vts = [[thisvt+relativedelta(months=-mm) for mm in range(3)] for thisvt in vt]
-
-                numdays = [np.sum([monthrange(dd.year,dd.month)[1] for dd in d3]) for d3 in vts]
-                anomalies = anomalies.assign_coords(numdays=('forecastMonth',numdays))
-
-                # Define names for the 3-month rolling archives, that give an indication over which months the average was built
-                vts_names = ['{}{}{} {}'.format(d3[2].strftime('%b')[0],d3[1].strftime('%b')[0],d3[0].strftime('%b')[0], d3[0].strftime('%Y'))  for d3 in vts]
-                anomalies = anomalies.assign_coords(valid_time=('forecastMonth',vts_names))        
-
-                # Convert the precipitation accumulations based on the number of days
-                anomalies_tp = anomalies * anomalies.numdays * 24 * 60 * 60 * 1000
-
-                # Add updated attributes
-                anomalies_tp.attrs['units'] = 'mm'
-                anomalies_tp.attrs['long_name'] = 'SEAS5 3-monthly total precipitation ensemble mean anomaly for 6 lead-time months'
-
-            else:
-                raise ValueError(f"Trigger model {triggermodel} not supported")
+                logging.error(f"Error in extracting extent of the filtered geofile: {e}")             
+           
+            sub_region = (lat_max, lon_min, lat_min, lon_max)        
 
             # extract annomalies for a specific region 
 
-            sub_anomalies = self.subset_region(anomalies_tp, sub_region)
-
+            sub_anomalies = self.subset_region(anomalies_tp, sub_region)     
+            
             #to determin aresas where the forecasted rain is below average for 70% of the ensemble members
             #percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(sub_anomalies,trigger_probability)     
             percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(anomalies_tp,trigger_probability)
 
-            self.save_to_geotiff(percentage_below_average_per_gridcell,country)
+            self.save_to_geotiff(percentage_below_average_per_gridcell,country,prefix='rainfall_forecast')
 
 
             # Apply weighted mean for the region
@@ -418,9 +393,7 @@ class Extract:
             }
 
             # Calculate trigger status
-            dftemp=anomalies_df.anomaly 
-
-            dftemp=anomalies_df.anomaly 
+            dftemp=anomalies_df.anomaly        
             dftemp.index=dftemp.index + 1
             forecastQ=dftemp.to_dict(orient='index')          
 
@@ -430,22 +403,16 @@ class Extract:
                 'tercile_lower':thresholds['P33'].drop_vars(['quantile','numdays']).to_series().to_dict(),
                 'tercile_upper':thresholds['P66'].drop_vars(['quantile','numdays']).to_series().to_dict(),
                 'forecast':forecastQ
-                }
-                      
+                }                      
 
-            tercile_seasonal_prc_df = thresholds['P33'].drop_vars(['quantile', 'numdays']).to_dataframe(name='p33')
-        
+            tercile_seasonal_prc_df = thresholds['P33'].drop_vars(['quantile', 'numdays']).to_dataframe(name='p33')        
             tercile_seasonal_prc_df = tercile_seasonal_prc_df.reset_index().drop('forecastMonth', axis=1)
-
             dftemp=anomalies_df.anomaly 
-
             tercile_seasonal_prc_df['triggerForecast'] = (dftemp.iloc[:, :51].lt(tercile_seasonal_prc_df.iloc[:, 0], axis=0).sum(axis=1) / 51) 
-
             tercile_seasonal_prc_df['triggerStatus'] = tercile_seasonal_prc_df['triggerForecast'].gt(trigger_level)
 
             # Add the lead time index as months (e.g., Month 1, Month 2, etc.)
             #tercile_seasonal_prc_df.index = [f"Month {i+1}" for i in tercile_seasonal_prc_df.index]
-
             # Convert to dictionary
             tercile_seasonal_prc_df.index = range(1, len(tercile_seasonal_prc_df) + 1)
             data_dict = tercile_seasonal_prc_df[['triggerForecast','triggerStatus']].to_dict(orient="index")
@@ -490,12 +457,5 @@ class Extract:
                             triggered=data_dict[leadtime]['triggerStatus'],
                             likelihood=data_dict[leadtime]['triggerForecast'],
                         )
-                    )
- 
-
-
-
-
-
-        
+                    )     
 

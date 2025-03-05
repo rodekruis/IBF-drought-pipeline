@@ -58,3 +58,110 @@ To implement a new drought indicator:
 ## Adding a New Country
 1. **Update Configuration:** Add the new country to the configuration file.
 2. **Define Climate Regions:** Create and upload the climate regions dataset for the new country to the Azure Cosmos database.
+
+
+
+# Configuration File: Country-Specific Settings
+
+This configuration file defines settings for climate regions, triggers, and thresholds for a specific country (e.g., Kenya). It is used to control how alerts and forecasts are generated, and how they interact with the portal. Below is an explanation of the various settings and their purpose.
+
+
+The configuration file is structured in YAML format, and each section pertains to different country-specific settings. The key sections include:
+
+1. **countries**: This defines settings for specific countries (e.g., KEN for Kenya).
+2. **admin-levels**: Specifies which administrative levels the settings apply to.
+3. **pipeline-will-trigger-portal**: Controls whether the trigger should be uploaded to the portal.
+4. **classify-alert-on**: Defines whether multi-threshold classification is enabled.
+5. **alert-on-minimum-probability**: Sets the minimum thresholds for various alert levels.
+6. **trigger_model**: Defines the trigger model and its settings for triggering alerts.
+7. **Climate_Region**: Defines the climate region (e.g., National) and lead-time and season for each month.
+
+
+### **countries**
+This section defines settings specific to a country, in this case, Kenya (`KEN`). Each country can have its own configuration settings, and multiple regions or administrative levels can be defined.
+
+Example:
+
+```yaml
+countries:
+  - name: KEN
+    admin-levels:
+      - 1
+    pipeline-will-trigger-portal: disable
+    classify-alert-on: disable
+```
+
+#### **Parameters:**
+- `name`: The ISO country code for the country (e.g., "KEN" for Kenya).
+- `admin-levels`: The administrative levels within the country to which the settings apply (e.g., 1 for first-level administrative areas).
+- `pipeline-will-trigger-portal`: Whether the pipeline will trigger the portal (values: `enable` or `disable`).
+- `classify-alert-on`: Whether multi-threshold classification is enabled (values: `enable` or `disable`).
+
+---
+
+### **alert-on-minimum-probability**
+This section defines the thresholds for the multi-threshold alert system. It specifies the probability levels that trigger different alert types. **This is DISABLED in current piepline**
+
+Example:
+
+```yaml
+alert-on-minimum-probability:
+  min: 0.65
+  med: 0.75
+  max: 0.85
+```
+
+#### **Parameters:**
+- `min`: The minimum probability threshold to trigger an alert (e.g., 0.65).
+- `med`: The medium probability threshold (e.g., 0.75).
+- `max`: The maximum probability threshold (e.g., 0.85).
+
+These thresholds can be adjusted depending on the sensitivity needed for generating alerts.
+
+---
+
+### **trigger_model**
+Defines the settings for the climate model used for triggering alerts based on seasonal forecasts.
+
+Example:
+
+```yaml
+trigger_model:
+  model: seasonal_rainfall_forecast
+  trigger-on-minimum-probability: 0.6
+  trigger-on-minimum-probability-drought-extent: 0.6
+  trigger-on-minimum-admin-area-in-drought-extent: 0.5
+```
+
+#### **Parameters:**
+- `model`: The name of the indicator or trigger model used (e.g., `seasonal_rainfall_forecast`).
+- `trigger-on-minimum-probability`: The minimum probability at which the seasonal forecast is considered to be below the lower tercile (indicating a potential drought).
+- `trigger-on-minimum-probability-drought-extent`: Defines the minimum probability that the ensemble members suggest the seasonal average is below the climate average (for assessing drought extent).
+- `trigger-on-minimum-admin-area-in-drought-extent`: Defines the threshold for determining whether a region is experiencing drought based on the drought extent map. This setting is not currently used but is reserved for future use.
+
+---
+
+### **Climate_Region**
+This section specifies the climate region and the lead-time for each forecast season (e.g., for January, the forecast lead time could be 2 months).
+
+Example:
+
+```yaml
+Climate_Region:
+  - name: National
+    climate-region-code: 1
+    leadtime:
+      Jan:
+        - MAM: "2-month"
+```
+
+#### **Parameters:**
+- `name`: The name of the climate region (e.g., "National").
+- `climate-region-code`: The numerical code associated with the climate region.
+- `leadtime`: Defines the lead-time for each season (e.g., "MAM" (March-April-May) for January with a 2-month lead time).
+
+
+
+
+
+ 
