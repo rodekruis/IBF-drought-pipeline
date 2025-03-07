@@ -301,27 +301,32 @@ class Load:
         climate_regions= {}
         lead_times_list = []
         climate_region_codes=[] 
-        DEFAULT_CURRENT_MONTH  = date.today().strftime('%b')
 
+        DEFAULT_CURRENT_MONTH  = date.today().strftime('%b') #### This should be set in config file
 
-        for entry in self.settings.get_country_setting(country,"Climate_Region"):
-            climateRegionCode=entry['climate-region-code'] 
-            if climateRegionCode is None:
-                raise ValueError("Climate region not defined in config file")
-            
-            for key, value in entry['leadtime'][DEFAULT_CURRENT_MONTH][0].items():
-                 leadtime_value = int(value.split('-')[0])
-                 if climateRegionCode is not None:
-                    climate_regions[climateRegionCode] = {
-                                'climateregionname': entry['name'],
-                                'season': key,
-                                'leadtime': leadtime_value}
+        ''' 
+                for entry in self.settings.get_country_setting(country,"Climate_Region"):
+                    climateRegionCode=entry['climate-region-code'] 
+                    if climateRegionCode is None:
+                        raise ValueError("Climate region not defined in config file")
                     
-            lead_times_list.append(leadtime_value)
-            climate_region_codes.append(climateRegionCode)
+                    for key, value in entry['leadtime'][DEFAULT_CURRENT_MONTH][0].items():
+                        leadtime_value = int(value.split('-')[0])
+                        if climateRegionCode is not None:
+                            climate_regions[climateRegionCode] = {
+                                        'climateregionname': entry['name'],
+                                        'season': key,
+                                        'leadtime': leadtime_value}
+                            
+                    lead_times_list.append(leadtime_value)
+                    climate_region_codes.append(climateRegionCode)
+        '''
 
-        for climate_region_code in threshold_climateregion.get_climate_region_codes():
+ 
+
+        for climate_region_code in forecast_climateregion.get_climate_region_codes():
             events = {}
+            
             for lead_time in range(0, 6):
                 if (forecast_climateregion.get_climate_region_data_unit(
                     climate_region_code, lead_time
@@ -335,23 +340,27 @@ class Load:
                     triggered_lead_times.append(lead_time)
             if not events:
                 continue
-            events = dict(sorted(events.items()))
 
+            events = dict(sorted(events.items()))     
 
+            logging.info(f"event {events} " )
+            lead_times_list=[]
 
-            for lead_time_event, event_type in events.items():
-                logging.info(
-                    f"event {climate_region_code}, type '{event_type}', lead time {lead_time_event}"
-                )
-                if lead_time_event in lead_times_list and climate_region_code in climate_region_codes:
-                    climate_region_name= climate_regions[climate_region_code]['climateregionname']
-                    season_name=climate_regions[climate_region_code]['season']
+            for entry in self.settings.get_leadtime_for_climate_region_code(country, climate_region_code, DEFAULT_CURRENT_MONTH):
+                for key, value in entry.items():
+                    season_name=key
+                    lead_time = int(value.split('-')[0])
+                    lead_times_list.append(lead_time)
 
-                    if climate_region_name.split('_')[0] in ['National','national']:
-                        event_name = season_name
-                    else:
-                        event_name = f"{climate_region_name} {season_name}"
+            climate_region_name = self.settings.get_climate_region_name_by_code(country,climate_region_code)  
 
+            if climate_region_name.split('_')[0] in ['National','national']:
+                event_name = season_name
+            else:
+                event_name = f"{climate_region_name} {season_name}"
+
+            for lead_time_event , event_type in events.items():                
+                if lead_time_event in lead_times_list:
 
                     pcodes=threshold_climateregion.get_data_unit(climate_region_code=climate_region_code).pcodes
 
@@ -362,6 +371,7 @@ class Load:
                         "forecast_trigger",
                         "forecast_severity",
                     ]   
+
                     for indicator in indicators:
                         for adm_level in admin_levels:
                             exposure_pcodes = []
@@ -385,10 +395,9 @@ class Load:
                                         ),
                                         trigger_class=pipeline_will_trigger_portal,
                                     )
-                                exposure_pcodes.append(
-                                    {"placeCode": pcode, "amount": amount}
-                                )
+                                exposure_pcodes.append({"placeCode": pcode, "amount": amount})
                                 processed_pcodes.append(pcode)
+
                             body = {
                                 "countryCodeISO3": country,
                                 "leadTime": f"{lead_time_event}-month",
@@ -399,37 +408,43 @@ class Load:
                                 "eventName": event_name,
                                 "date": upload_time,
                             }
-                            self.ibf_api_post_request(
-                                "admin-area-dynamic-data/exposure", body=body
-                            )
+                            statsPath=drought_extent.replace(".tif", f"{indicator}_{lead_time_event}-month_{country}_{adm_level}.json" )
+                            with open(statsPath, 'w') as fp:
+                                    json.dump(body, fp)
+
+                            self.ibf_api_post_request("admin-area-dynamic-data/exposure", body=body )
                     processed_pcodes = list(set(processed_pcodes))
 
-                # send trigger per lead time: event/triggers-per-leadtime
-                triggers_per_lead_time = [] 
-                for lead_time in set(lead_times_list):
-                    is_trigger, is_trigger_or_alert = False, False  
-                    for lead_time_event, event_type in events.items():
-                        if event_type == "trigger" and lead_time >= lead_time_event:
-                            is_trigger = True
-                        if (
-                            event_type == "trigger" or event_type == "alert"
-                        ) and lead_time >= lead_time_event:
-                            is_trigger_or_alert = True
-                    triggers_per_lead_time.append(
-                        {
-                            "leadTime": f"{lead_time}-month",
-                            "triggered": is_trigger_or_alert,
-                            "thresholdReached": is_trigger,
-                        }
-                    )
-                body = {
-                    "countryCodeISO3": country,
-                    "triggersPerLeadTime": triggers_per_lead_time,
-                    "disasterType": disasterType,
-                    "eventName": event_name,
-                    "date": upload_time,
-                }
-                self.ibf_api_post_request("event/triggers-per-leadtime", body=body)
+            # send trigger per lead time: event/triggers-per-leadtime
+            triggers_per_lead_time = [] 
+
+            for lead_time in range(0,5):#set(lead_times_list):
+                is_trigger, is_trigger_or_alert = False, False  
+                for lead_time_event, event_type in events.items():
+                    if event_type == "trigger" and lead_time  >= lead_time_event:
+                        is_trigger = True
+                    if (
+                        event_type == "trigger" or event_type == "alert"
+                    ) and lead_time >= lead_time_event:
+                        is_trigger_or_alert = True
+                triggers_per_lead_time.append(
+                    {
+                        "leadTime": f"{lead_time}-month",
+                        "triggered": is_trigger_or_alert,
+                        "thresholdReached": is_trigger,
+                    }
+                )
+            body = {
+                "countryCodeISO3": country,
+                "triggersPerLeadTime": triggers_per_lead_time,
+                "disasterType": disasterType,
+                "eventName": event_name,
+                "date": upload_time,
+            }
+            statsPath=drought_extent.replace(".tif", f"_{lead_time}-month_{country}.json" )
+            with open(statsPath, 'w') as fp:
+                    json.dump(body, fp)
+            self.ibf_api_post_request("event/triggers-per-leadtime", body=body)
 
         # END OF EVENT LOOP
         ###############################################################################################################
@@ -451,6 +466,8 @@ class Load:
 
 
         # send empty exposure data
+        logging.info(f"processed_pcodes {processed_pcodes} " )
+        
         if len(processed_pcodes) == 0:
             indicators = [
                 "population_affected",
@@ -462,7 +479,7 @@ class Load:
             ]
             for lead_time in set(lead_times_list):
                 for indicator in indicators:
-                    for adm_level in forecast_data.adm_levels:
+                    for adm_level in admin_levels:
                         exposure_pcodes = []
                         for pcode in forecast_data.get_pcodes(adm_level=adm_level):
                             if pcode not in processed_pcodes:

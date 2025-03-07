@@ -162,6 +162,7 @@ countries:
             - Long_Rains: "3-month"
   - name: ETH
     admin-levels:
+      - 1
       - 2
     #trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable

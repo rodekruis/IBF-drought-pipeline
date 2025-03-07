@@ -67,3 +67,65 @@ class Settings:
             raise Exception(
                 f"Missing settings {', '.join(missing_settings)} in {self.setting_path}"
             )
+        
+    def get_leadtime_for_climate_region(self, country: str, climate_region: str, month: str):
+        # Fetch country setting
+        country_setting = next(
+            (x for x in self.get_setting("countries") if x["name"] == country), None
+        )
+        
+        if not country_setting:
+            raise ValueError(f"Country {country} not found in {self.setting_path}")
+        
+        # Loop through the climate regions for the country
+        for region in country_setting.get("Climate_Region", []):
+            if region["name"] == climate_region:
+                # Check if the month exists in the leadtime for this climate region
+                leadtime = region.get("leadtime", {}).get(month)
+                if leadtime:
+                    return leadtime
+                else:
+                    raise ValueError(f"Month {month} not found for climate region {climate_region} in country {country}")
+        
+        raise ValueError(f"Climate region {climate_region} not found in country {country}")
+    
+    def get_leadtime_for_climate_region_code(self, country: str, climate_region_code: int, month: str):
+        # Fetch country setting
+        country_setting = next(
+            (x for x in self.get_setting("countries") if x["name"] == country), None
+        )
+        
+        if not country_setting:
+            raise ValueError(f"Country {country} not found in {self.setting_path}")
+        
+        # Loop through the climate regions for the country
+        for region in country_setting.get("Climate_Region", []):
+            if region["climate-region-code"] == climate_region_code:
+                # Check if the month exists in the leadtime for this climate region
+                leadtime = region.get("leadtime", {}).get(month)
+                if leadtime:
+                    return leadtime
+                else:
+                    raise ValueError(f"Month {month} not found for climate region code {climate_region_code} in country {country}")
+        
+        raise ValueError(f"Climate region code {climate_region_code} not found in country {country}")
+    
+    def get_climate_region_name_by_code(self, country: str, climate_region_code: int):
+        # Fetch country setting
+        country_setting = next(
+            (x for x in self.get_setting("countries") if x["name"] == country), None
+        )
+        
+        if not country_setting:
+            raise ValueError(f"Country {country} not found in {self.setting_path}")
+        
+        # Loop through the climate regions for the country
+        for region in country_setting.get("Climate_Region", []):
+            if region["climate-region-code"] == climate_region_code:
+                # Return the name of the climate region for the matched code
+                return region["name"]
+        
+        raise ValueError(f"Climate region code {climate_region_code} not found in country {country}")
+
+
+

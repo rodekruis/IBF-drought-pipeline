@@ -414,7 +414,8 @@ class Extract:
             # Add the lead time index as months (e.g., Month 1, Month 2, etc.)
             #tercile_seasonal_prc_df.index = [f"Month {i+1}" for i in tercile_seasonal_prc_df.index]
             # Convert to dictionary
-            tercile_seasonal_prc_df.index = range(1, len(tercile_seasonal_prc_df) + 1)
+
+            tercile_seasonal_prc_df.index = range(1, len(tercile_seasonal_prc_df)+1 )
             data_dict = tercile_seasonal_prc_df[['triggerForecast','triggerStatus']].to_dict(orient="index")
 
                         # Save to JSON
@@ -422,18 +423,33 @@ class Extract:
 
             with open(json_file_path, "w") as json_file:
                 json.dump(data_dict, json_file, indent=4)
-            logging.info(f"finished extraction of rainfall forecast for climate region{climateRegion}")
+
+      
 
             for leadtime in forecastData['tercile_lower'].keys():
-
+                self.data.rainfall_climateregion.upsert_data_unit(
+                        ForecastDataUnit(
+                            climate_region_code=climateRegion,
+                            climate_region_name=climateRegionName,
+                            lead_time=leadtime-1,
+                            tercile_lower=forecastData['tercile_lower'][leadtime],
+                            tercile_upper=forecastData['tercile_upper'][leadtime],
+                            forecast=forecastData['forecast'][leadtime],
+                            triggered=data_dict[leadtime]['triggerStatus'],
+                            likelihood=data_dict[leadtime]['triggerForecast'],
+                        )
+                    )
                 
+            logging.info(f"finished extraction of rainfall forecast for climate region{climateRegion}")
+
+            for leadtime in forecastData['tercile_lower'].keys():                
                 for pcode in filtered_gdf.placeCode.unique():
                     self.data.rainfall_admin.upsert_data_unit(
                         ForecastDataUnit(
                             climate_region_code=climateRegion,
                             climate_region_name=climateRegionName,
                             pcode=pcode,
-                            lead_time=leadtime,
+                            lead_time=leadtime-1,
                             tercile_lower=forecastData['tercile_lower'][leadtime],
                             tercile_upper=forecastData['tercile_upper'][leadtime],
                             forecast=forecastData['forecast'][leadtime],
@@ -444,6 +460,7 @@ class Extract:
                     # 
                     #If LEADTIME is 1, also write a file for month 0 we probably should not be doing this here. 
                     # we discussed with IBF team that we will not upload  FOR NOW CREATING A FILE FOR LEADTIME 0
+                    ''' 
                     if leadtime == 1:
                         self.data.rainfall_admin.upsert_data_unit(
                         ForecastDataUnit(
@@ -457,5 +474,6 @@ class Extract:
                             triggered=data_dict[leadtime]['triggerStatus'],
                             likelihood=data_dict[leadtime]['triggerForecast'],
                         )
-                    )     
+                    )'
+                    '''     
 
