@@ -46,6 +46,7 @@ countries:
       trigger-on-minimum-probability: 0.6 
       trigger-on-minimum-probability-drought-extent: 0.6  
       trigger-on-minimum-admin-area-in-drought-extent: 0.5 
+      tercile_treshold: 0.33
     Climate_Region:
       - name: National
         climate-region-code: 1
@@ -86,9 +87,9 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.7 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
-      trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+      trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons 
+      tercile_treshold: 0.33
     Climate_Region:
       - name: National
         climate-region-code: 1
@@ -130,8 +131,8 @@ countries:
     trigger_model: 
       model: seasonal_rainfall_forecast
       trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
-      trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.4 #for drought extent(grid) overlap with  admin polygons
+      tercile_treshold: 0.33 
     Climate_Region:
       - name: National
         climate-region-code: 1
@@ -162,7 +163,6 @@ countries:
             - Long_Rains: "3-month"
   - name: ETH
     admin-levels:
-      - 1
       - 2
     #trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable
@@ -173,44 +173,17 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast_3m
-      trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
-      #trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+      trigger-on-minimum-probability: 0.33 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.05 #for drought extent(grid) overlap with  admin polygons
+      tercile_treshold: 0.33 
     Climate_Region:
       - name: Meher
         climate-region-code: 1
         leadtime:
           Jan: 
-            - FMA: "1-month"
+            - JAS: "6-month"
           Feb: 
-            - FMA: "0-month"
-          Mar: 
-            - FMA: "0-month"
-          Apr: 
-            - FMA: "3-month"
-          May: 
-            - JAS: "2-month"
-          Jun: 
-            - JAS: "1-month"
-          Jul: 
-            - JAS: "0-month"
-          Aug: 
-            - JAS: "0-month"
-          Sep: 
-            - JAS: "0-month"
-          Oct: 
-            - FMA: "4-month"
-          Nov: 
-            - FMA: "3-month"
-          Dec: 
-            - FMA: "2-month"
-      - name: Belg
-        climate-region-code: 2
-        leadtime:
-          Jan: 
-            - FMA: "1-month"
-          Feb: 
-            - FMA: "0-month"
+            - JAS: "5-month"
           Mar: 
             - JAS: "4-month"
           Apr: 
@@ -226,11 +199,39 @@ countries:
           Sep: 
             - JAS: "0-month"
           Oct: 
-            - FMA: "4-month"
+            - JAS: "9-month"
           Nov: 
-            - FMA: "3-month"
+            - JAS: "8-month"
           Dec: 
-            - FMA: "2-month"
+            - JAS: "7-month"
+      - name: Belg
+        climate-region-code: 2
+        leadtime:
+          Jan: 
+            - MAM: "1-month"
+          Feb: 
+            - MAM: "0-month"
+          Mar: 
+            - MAM: "0-month"
+          Apr: 
+            - MAM: "0-month"
+            - JAS: "3-month"
+          May: 
+            - JAS: "2-month"
+          Jun: 
+            - JAS: "1-month"
+          Jul: 
+            - JAS: "0-month"
+          Aug: 
+            - JAS: "0-month"
+          Sep: 
+            - JAS: "0-month"
+          Oct: 
+            - MAM: "4-month"
+          Nov: 
+            - MAM: "3-month"
+          Dec: 
+            - MAM: "2-month"
       - name: Northern
         climate-region-code: 3
         leadtime:
@@ -241,8 +242,10 @@ countries:
           Mar:
             - MAM: "0-month"
           Apr:
+            - MAM: "0-month"
             - JAS: "3-month"
           May:
+            - MAM: "0-month"
             - JAS: "2-month"
           Jun: 
             - JAS: "1-month"
@@ -253,9 +256,9 @@ countries:
           Sep: 
             - JAS: "0-month"
           Oct: 
-            - JAS: "5-month"
+            - MAM: "5-month"
           Nov: 
-            - JAS: "4-month"
+            - MAM: "4-month"
           Dec: 
             - MAM: "3-month"
       - name: Southern
@@ -272,7 +275,7 @@ countries:
           May:
             - MAM: "0-month"
           Jun: 
-            - MAM: "0-month"
+            - OND: "4-month"
           Jul: 
             - OND: "3-month"
           Aug: 
@@ -284,6 +287,7 @@ countries:
           Nov: 
             - OND: "0-month"
           Dec: 
+            - OND: "0-month"
             - MAM: "3-month"
 
   - name: ZWE
@@ -299,8 +303,8 @@ countries:
     trigger_model: 
       model: seasonal_rainfall_forecast
       trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-probability-drought-extent: 0.6  # for drought extent using below average sesonal rain as a proxy
       trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+      tercile_treshold: 0.33
     Climate_Region:
       - name: National
         climate-region-code: 1

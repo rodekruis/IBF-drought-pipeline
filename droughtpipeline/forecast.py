@@ -2,8 +2,7 @@ from droughtpipeline.secrets import Secrets
 from droughtpipeline.settings import Settings
 from droughtpipeline.data import (
     PipelineDataSets,
-    ForecastDataUnit,
-    DroughtForecast
+    ForecastDataUnit
 )
 
 from droughtpipeline.load import Load
@@ -21,6 +20,9 @@ from rasterio.mask import mask
 from rasterio.features import shapes
 import shutil
 import logging
+import rioxarray
+import warnings
+warnings.simplefilter("ignore", category=RuntimeWarning)
 
 
 def merge_rasters(raster_filepaths: list) -> tuple:
@@ -174,21 +176,14 @@ class Forecast:
 
         # remove this line if we are uploading for mulltiple triggers 
 
-        #trigger_on_lead_time = self.settings.get_country_setting(country, "trigger-on-lead-time" )
 
-        #trigger_on_return_period = self.settings.get_country_setting(country, "trigger-on-return-period")
 
         trigger_on_minimum_probability = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-probability']
+        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']      
+   
 
         classify_alert_on = self.settings.get_country_setting(country, "classify-alert-on")
-
-        ''' 
-
-        alert_on_return_period = self.settings.get_country_setting(
-            country, "alert-on-return-period"
-        )
-
-        '''        
+    
 
         alert_on_minimum_probability = self.settings.get_country_setting(
             country, "alert-on-minimum-probability"
@@ -198,6 +193,9 @@ class Forecast:
 
         current_month = date.today().strftime('%b')  # 'Feb' for February check if this can be passed from settings climate_regions should come form settings file
         admin_levels=self.settings.get_country_setting(country, "admin-levels")
+
+
+        
 
   
  
@@ -214,24 +212,23 @@ class Forecast:
                 else:
                     raise ValueError("climate region not defined in config file ") 
                 
-        climateRegions=self.data.threshold_climateregion.get_climate_region_codes()
-        #for climateregion in self.data.rainfall_climateregion.get_climateregions(): #change to rainfall_climateregion
-        #adm_level_= self.settings.get_country_setting(country, "admin-levels") 
-         #if multiple admin levels are defined in cofig file reflect the change here 
    
 
-        for climateregion in self.data.threshold_climateregion.get_climate_region_codes():# ,climateregionVars in climate_regions.items():
-            for lead_time in range(0, 6): #self.data.forecast_admin.get_lead_times(): #change to forecast_admin            
-                #lead_time=climateregionVars['leadtime']
-                #season=climateregionVars['season']
-                #climateregionname=climateregionVars['climateregionname']
-
-                adm_level_=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateregion).adm_level # this is the admin level for as defined in the drought EAP protocol             
+        for climateregion in self.data.threshold_climateregion.get_climate_region_codes():
+            for lead_time in range(0, 6):   
                 
                 pcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateregion).pcodes
 
+                output_file = f"{self.output_data_path}/rlower_tercile_probability_{lead_time}-month_{country}.tif"   
+
+                # Open the TIF file as an xarray object
+                rlower_tercile_probability = rioxarray.open_rasterio(output_file)
+
                 for adm_level in admin_levels:
-                    #self.data.rainfall_climateregion
+                    climateRegionPcodes=pcodes[f'{adm_level}']
+
+                    admin_boundary=self.load.get_adm_boundaries(country,adm_level) 
+
                     climate_data_unit = self.data.rainfall_climateregion.get_climate_region_data_unit(climateregion, lead_time)
 
                     tercile_lower=climate_data_unit.tercile_lower         
@@ -249,101 +246,62 @@ class Forecast:
                         classify_alert_on,
                         alert_on_minimum_probability,
                     )
- 
-                    climateRegionPcodes=pcodes[f'{adm_level}']
+                    self.data.forecast_climateregion.upsert_data_unit(
+                        ForecastDataUnit(
+                            climate_region_code=climateregion,
+                            adm_level=adm_level,
+                            lead_time=lead_time,     ########## check this           
+                            triggered=triggered,
+                            alert_class=alert_class,
+                            likelihood=likelihood,
+                            tercile_lower=tercile_lower,
+                            forecast=forecast,
+                            tercile_upper=tercile_upper                            
+                        )                
+                        )              
+                   
 
-                    for pcode in climateRegionPcodes:       
-                        if isinstance(triggered, tuple):
-                            triggered = triggered[0]  
+                    for pcode in climateRegionPcodes: 
+                        gdf1 = admin_boundary.query(f'adm{adm_level}_pcode == @pcode')
+                        clipped_regional_mean = rlower_tercile_probability.rio.clip(gdf1.geometry, gdf1.crs, drop=True, all_touched=True)
 
-                        alert_class = classify_alert(
+                        likelihood = round(np.nanmedian(clipped_regional_mean.values),2)
+
+                        binary_clipped_regional_mean = (
+                            clipped_regional_mean > trigger_on_minimum_probability
+                            ).astype(int)
+
+                        anomalies_df = binary_clipped_regional_mean.to_dataframe(name='anomaly')
+                        percentage_greater_than_zero = (anomalies_df.anomaly.values > 0).sum() / anomalies_df.anomaly.values.size  
+
+                        if percentage_greater_than_zero > trigger_on_minimum_admin_area_in_drought_extent:
+                            triggered=1
+                        else:
+                            triggered=0
+
+
+                        alert_class_admin = classify_alert(
                             triggered,
                             likelihood,
                             classify_alert_on,
                             alert_on_minimum_probability,
-                        )
+                        )   
+
 
                         self.data.forecast_admin.upsert_data_unit(
                             ForecastDataUnit(
                             pcode=pcode,
                             adm_level=adm_level, 
-                            lead_time=lead_time,                
+                            lead_time=lead_time,        ########## check this         
                             triggered=triggered,
-                            alert_class=alert_class,
-                            likelihood=likelihood,
-                            tercile_lower=tercile_lower,
+                            alert_class=alert_class_admin,
+                            #likelihood=likelihood,
+                            #tercile_lower=tercile_lower,
                             forecast=forecast,
-                            tercile_upper=tercile_upper
+                            #tercile_upper=tercile_upper,
 
                         ))
 
-                    self.data.forecast_climateregion.upsert_data_unit(
-                        ForecastDataUnit(
-                            climate_region_code=climateregion,
-                            adm_level=adm_level,
-                            lead_time=lead_time,                
-                            triggered=triggered,
-                            alert_class=alert_class,
-                            likelihood=likelihood,
-                            tercile_lower=tercile_lower,
-                            forecast=forecast,
-                            tercile_upper=tercile_upper
-                        )                
-                        )
-                
-
-                """
-                
-                for pcode in climateRegionPcodes:# rainfall_data_unit.get_pcodes():
-                    rain_data_unit = self.data.rainfall_admin.get_data_unit(pcode, lead_time)
-
-                    
-                    tercile_lower=rain_data_unit.tercile_lower 
-                    rainfall_forecast=rain_data_unit.forecast
-                    likelihood=rain_data_unit.likelihood
-                    triggered=rain_data_unit.triggered,    
-                    forecast=rain_data_unit.forecast,
-                    tercile_upper=rain_data_unit.tercile_upper,   
-                    #adm_level = rain_data_unit.adm_level
-
-                    if isinstance(triggered, tuple):
-                        triggered = triggered[0]  # unpack tuple to boolean not sure why this is a tuple         
-
-                    alert_class = classify_alert(
-                        triggered,
-                        likelihood,
-                        classify_alert_on,
-                        alert_on_minimum_probability,
-                    )
-                    self.data.forecast_admin.upsert_data_unit(
-                        ForecastDataUnit(
-                        pcode=pcode,
-                        adm_level=adm_level_,
-                        #climate_region_code=climateregion,
-                        #season=season,
-                        lead_time=lead_time,                
-                        triggered=triggered,
-                        alert_class=alert_class,
-                        likelihood=likelihood,
-                        tercile_lower=tercile_lower,
-                        forecast=forecast,
-                        tercile_upper=tercile_upper
-
-                    ))
-
-                self.data.forecast_climateregion.upsert_data_unit(
-                    ForecastDataUnit(
-                        climate_region_code=climateregion,
-                        lead_time=lead_time,                
-                        triggered=triggered,
-                        alert_class=alert_class,
-                        likelihood=likelihood,
-                        tercile_lower=tercile_lower,
-                        forecast=forecast,
-                        tercile_upper=tercile_upper
-                    )                
-                    )
-                """
 
 
 
@@ -359,7 +317,7 @@ class Forecast:
         flood_shapes = []
 
         for lead_time in self.data.forecast_admin.get_lead_times():
-            flood_raster_lead_time = self.output_data_path + f"/rainfall_forecast_{lead_time}-month_{country}.tif" 
+            flood_raster_lead_time = self.output_data_path + f"/rain_rp_{lead_time}-month_{country}.tif" 
             
             aff_pop_raster_lead_time = self.aff_pop_raster.replace(
                 ".tif", f"_{lead_time}.tif"

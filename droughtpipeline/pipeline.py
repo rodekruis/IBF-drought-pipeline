@@ -70,25 +70,16 @@ class Pipeline:
 
             '''
             if save:
-                logging.info("save discharge data to storage")
+                logging.info("save ecmwf data to storage")
                 self.load.save_pipeline_data(
-                    data_type="ecmwf forecast", dataset=self.data.discharge_admin
-                )
-                self.load.save_pipeline_data(
-                    data_type="discharge-station", dataset=self.data.discharge_station
-                )
+                    data_type="seasonal-rainfall-forecast", dataset=self.data.discharge_admin
+                )             
                 ''' 
         else:
             logging.info(f"get ecmwf data from storage") # for ecmwf seasonal forecast therer is no need to store the forecast data on 
             ''' 
             self.data.discharge_admin = self.load.get_pipeline_data(
                 data_type="discharge",
-                country=self.country,
-                start_date=datetimestart,
-                end_date=datetimeend,
-            )
-            self.data.discharge_station = self.load.get_pipeline_data(
-                data_type="discharge-station",
                 country=self.country,
                 start_date=datetimestart,
                 end_date=datetimeend,
@@ -113,14 +104,6 @@ class Pipeline:
                     start_date=datetimestart,
                     end_date=datetimeend,
                 )
-                ''' 
-                self.data.forecast_station = self.load.get_pipeline_data(
-                    data_type="forecast-station",
-                    country=self.country,
-                    start_date=datetimestart,
-                    end_date=datetimeend,
-                ) 
-                '''
             logging.info("send data to IBF API")
             self.load.send_to_ibf_api(
                 forecast_data=self.data.forecast_admin,
@@ -128,3 +111,6 @@ class Pipeline:
                 forecast_climateregion=self.data.forecast_climateregion,
                 drought_extent=self.forecast.drought_extent_raster,
             )
+            logging.info("send data to 510 datalack")
+            self.load.upload_json_files( 
+                local_path=self.forecast.output_data_path)

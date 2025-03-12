@@ -25,9 +25,13 @@ import ftplib
 import copy
 from dateutil.relativedelta import relativedelta
 import json
+import calendar
 from calendar import monthrange
+import rioxarray
 
 import numpy as np
+import warnings
+warnings.simplefilter("ignore", category=RuntimeWarning)
 
 supported_sources = ["ECMWF"]
 
@@ -40,6 +44,33 @@ def slice_netcdf_file(nc_file: xr.Dataset, country_bounds: list):
     max_lat = country_bounds[3]  # Maximum latitude
     var_data = nc_file.sel(lon=slice(min_lon, max_lon), lat=slice(max_lat, min_lat))
     return var_data
+
+
+def convert_to_mm_per_month(hindcast, forecast):
+    """
+    Reads a file and returns the raster dataset converted to mm/month from m/s.
+    """
+    # Load hindcast dataset
+    ds_hindcast = xr.open_dataset(hindcast, engine='cfgrib', backend_kwargs={'time_dims': ('forecastMonth', 'time')})
+    ds_forecast = xr.open_dataset(forecast, engine='cfgrib', backend_kwargs={'time_dims': ('forecastMonth', 'time')})
+    
+      
+    # Get the month and year from the dataset
+    month = ds_hindcast.time.dt.month.values[0]
+    year = ds_hindcast.time.dt.year.values[0]
+    
+    # Calculate the number of days in each forecast month
+    days_in_month = [calendar.monthrange(year, month + fcmonth - 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
+    
+    # Assign the number of days as a coordinate to the dataset
+    ds = ds_hindcast.assign_coords(numdays=('forecastMonth', days_in_month))
+    ds2 = ds_forecast.assign_coords(numdays=('forecastMonth', days_in_month))
+    
+    # Convert the precipitation rate from m/s to mm/month
+    ds = ds * ds.numdays * 24 * 60 * 60 * 1000
+    ds2 = ds2 * ds2.numdays * 24 * 60 * 60 * 1000
+    
+    return ds,ds2
 
 
 class Extract:
@@ -170,7 +201,8 @@ class Extract:
 
         # Loop through each forecast month and save to a separate GeoTIFF file
         for i, month in enumerate(forecast_months):
-            output_file = f"{self.outputPathGrid}/{prefix}_{month}-month_{country}.tif"
+            lead_time=month-1
+            output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
             data = data_array.sel(forecastMonth=month).values
 
             with rasterio.open(
@@ -187,6 +219,7 @@ class Extract:
                 dst.write(data, 1)
             # If month is 1, also write a file for month 0 we probably should not be doing this here. 
             # we discussed with IBF team that we will not upload 
+            ''' 
             if month == 1:
                 output_file_zero = f"{self.outputPathGrid}/{prefix}_0-month_{country}.tif"
                 data_zero = data_array.sel(forecastMonth=month).values
@@ -203,6 +236,8 @@ class Extract:
                     transform=transform,
                 ) as dst_zero:
                     dst_zero.write(data_zero, 1)
+
+            ''' 
 
 
     def subset_region(self,ds, region, latname='latitude', lonname='longitude'):
@@ -222,6 +257,9 @@ class Extract:
 
         return subset
 
+
+
+
     
    
     def extract_ecmwf_data(self, country: str = None, debug: bool = False):
@@ -235,26 +273,43 @@ class Extract:
         
         admin_level_= self.settings.get_country_setting(country, "admin-levels")
  
-        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']    
-        trigger_probability=self.settings.get_country_setting(country, 
-                                                              "trigger_model")["trigger-on-minimum-probability-drought-extent"] # for the ensamble mebers below average to define drought extent
-        trigger_level=self.settings.get_country_setting(country, 
-                                                        "trigger_model")["trigger-on-minimum-probability"] # for the ensamble mebers below tercile to define trigger status
+        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']  
+
+
+        
+        trigger_on_minimum_probability = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-probability']
+        
+        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']     
         
 
-        logging.info("Extract seasonal forecast for each climate region")             
+        logging.info("Extract seasonal forecast for each climate region") 
+
+        ds_hindcast,ds_forecast=convert_to_mm_per_month(f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
+                                                f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib')
+
+        '''  
         ds_hindcast = xr.open_dataset(
             f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib',
             engine='cfgrib',
             backend_kwargs={'time_dims': ('forecastMonth', 'time')}
         )
-    
+
+        ds_hindcast['tprate'] = ds_hindcast['tprate'] * 86400 * 1000
+          
         # Load forecast data
         ds_forecast = xr.open_dataset(
             f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib',
             engine='cfgrib',
             backend_kwargs={'time_dims': ('forecastMonth', 'time')}
         )
+
+        # Convert tprate from m/s to mm/day
+        ds_forecast['tprate'] = ds_forecast['tprate'] * 86400 * 1000
+        tprate = ds_forecast['tprate'] 
+   
+        numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
+        #ds_forecast['tprate'].attrs['units'] = 'mm/day'
+        '''
 
         ########## for 3 month rolling mean
         seas5_forecast_3m = (
@@ -270,7 +325,11 @@ class Extract:
         )
 
         if triggermodel=='seasonal_rainfall_forecast':
-            tprate_forecast = ds_forecast['tprate']  
+            trigger_df= self.compare_forecast_to_historical_lower_tercile(country,ds_hindcast, ds_forecast)
+
+            tprate_forecast = ds_forecast['tprate'] 
+            tprate_hindcast = ds_hindcast['tprate']  
+            tprate_hindcast_mean = ds_hindcast.mean(['number','time'])
             # Convert lead time into valid dates
             valid_time = [
                 pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
@@ -282,11 +341,12 @@ class Extract:
             numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
             anomalies = anomalies.assign_coords(valid_time=('forecastMonth', valid_time))
             anomalies = anomalies.assign_coords(numdays=('forecastMonth', numdays))
-            anomalies_tp = anomalies * anomalies.numdays * 24 * 60 * 60 * 1000
+            anomalies_tp = anomalies #* anomalies.numdays * 24 * 60 * 60 * 1000
             anomalies_tp.attrs['units'] = 'mm'
             anomalies_tp.attrs['long_name'] = 'Total precipitation anomaly'
 
         elif triggermodel=='seasonal_rainfall_forecast_3m':
+            trigger_df= self.compare_forecast_to_historical_lower_tercile(country,ds_hindcast_3m, seas5_forecast_3m)
             tprate_forecast = seas5_forecast_3m['tprate']
 
             tprate_hindcast = ds_hindcast_3m['tprate']  
@@ -295,6 +355,7 @@ class Extract:
             anomalies = seas5_forecast_3m.tprate - tprate_hindcast_mean.tprate  
             # Calculate number of days for each forecast month and add it as coordinate information to the data array
             vt = [ pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth+1) for fcmonth in tprate_forecast.forecastMonth]
+
             vts = [[thisvt+relativedelta(months=-mm) for mm in range(3)] for thisvt in vt]
 
             numdays = [np.sum([monthrange(dd.year,dd.month)[1] for dd in d3]) for d3 in vts]
@@ -306,7 +367,7 @@ class Extract:
 
             anomalies = anomalies.assign_coords(numdays=('forecastMonth',numdays))                
             anomalies = anomalies.assign_coords(valid_time=('forecastMonth',valid_time))  
-            anomalies_tp = anomalies * anomalies.numdays * 24 * 60 * 60 * 1000
+            anomalies_tp = anomalies #* anomalies.numdays * 24 * 60 * 60 * 1000
             anomalies_tp.attrs['units'] = 'mm'
             anomalies_tp.attrs['long_name'] = 'SEAS5 3-monthly total precipitation ensemble mean anomaly for 6 lead-time months'            
 
@@ -318,7 +379,7 @@ class Extract:
         tprate_forecast_mean = tprate_forecast.mean(['number'])
         tprate_forecast_mean = tprate_forecast_mean.assign_coords(valid_time=('forecastMonth', valid_time))
         tprate_forecast_mean = tprate_forecast_mean.assign_coords(numdays=('forecastMonth', numdays))
-        tprate_forecast_mean = tprate_forecast_mean * tprate_forecast_mean.numdays * 24 * 60 * 60 * 1000
+        #tprate_forecast_mean = tprate_forecast_mean * tprate_forecast_mean.numdays * 24 * 60 * 60 * 1000
         tprate_forecast_mean.attrs['units'] = 'mm'
 
         self.save_to_geotiff(tprate_forecast_mean,country,prefix='rain_rp')
@@ -338,33 +399,30 @@ class Extract:
             #filtered_gdf = merged_data[merged_data['Climate_Region_code'] == climateRegion]
             if filtered_gdf.empty:
                 raise ValueError(f"No data matching {climateRegion} found in the geofile.")  
-        
             # Get the extent of the filtered geofile    
             try:
                 lon_min, lat_min, lon_max, lat_max = filtered_gdf.total_bounds  # [minx, miny, maxx, maxy]
           
             except ValueError as e:
-                logging.error(f"Error in extracting extent of the filtered geofile: {e}")             
+                logging.error(f"Error in extracting extent of the filtered geofile: {e}")            
            
-            sub_region = (lat_max, lon_min, lat_min, lon_max)        
-
+            sub_region = (lat_max, lon_min, lat_min, lon_max)      
             # extract annomalies for a specific region 
 
-            sub_anomalies = self.subset_region(anomalies_tp, sub_region)     
-            
-            #to determin aresas where the forecasted rain is below average for 70% of the ensemble members
-            #percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(sub_anomalies,trigger_probability)     
-            percentage_below_average_per_gridcell = self.calculate_percentage_below_zero(anomalies_tp,trigger_probability)
-
-            self.save_to_geotiff(percentage_below_average_per_gridcell,country,prefix='rainfall_forecast')
-
+            sub_anomalies = self.subset_region(anomalies_tp, sub_region)               
+     
 
             # Apply weighted mean for the region
             weights = np.cos(np.deg2rad(sub_anomalies.latitude))
             regional_mean = sub_anomalies.weighted(weights).mean(['latitude', 'longitude'])
 
             # Create dataframe for anomalies
-            anomalies_df = regional_mean.drop_vars(['time', 'surface', 'numdays']).to_dataframe(name='anomaly')
+         
+            anomalies_df = regional_mean.drop_vars(['time', 'surface', 'numdays']).to_dataframe()
+            
+            anomalies_df = anomalies_df.rename(columns={'tprate': 'anomaly'})
+                 
+                
 
             anomalies_df = anomalies_df.reset_index().drop('forecastMonth', axis=1).set_index(['valid_time', 'number']).unstack()
 
@@ -378,12 +436,7 @@ class Extract:
             hindcast_anomalies = hindcast_mean - hindcast_mean.mean(['number', 'time'])
 
 
-            #convert precipitation accumulations in m/s to total precipitation in m.
-
-            valid_time = [ pd.to_datetime(hindcast_anomalies.time.values[0]) + relativedelta(months=fcmonth-1) for fcmonth in hindcast_anomalies.forecastMonth]
-            numdays = [monthrange(dd.year,dd.month)[1] for dd in valid_time]
-            hindcast_anomalies = hindcast_anomalies.assign_coords(numdays=('forecastMonth',numdays))
-            hindcast_anomalies_tp = hindcast_anomalies * hindcast_anomalies.numdays * 24 * 60 * 60 * 1000   
+            hindcast_anomalies_tp = hindcast_anomalies # * hindcast_anomalies.numdays * 24 * 60 * 60 * 1000   
 
             thresholds = {
                 'P0': hindcast_anomalies_tp.min(['number', 'time']),
@@ -400,80 +453,184 @@ class Extract:
 
             forecastData={
                 'çlimateRegion':climateRegion,
-                'tercile_lower':thresholds['P33'].drop_vars(['quantile','numdays']).to_series().to_dict(),
-                'tercile_upper':thresholds['P66'].drop_vars(['quantile','numdays']).to_series().to_dict(),
+                'tercile_lower':thresholds['P33'].drop_vars(['quantile']).to_series().to_dict(),
+                'tercile_upper':thresholds['P66'].drop_vars(['quantile']).to_series().to_dict(),
                 'forecast':forecastQ
                 }                      
 
-            tercile_seasonal_prc_df = thresholds['P33'].drop_vars(['quantile', 'numdays']).to_dataframe(name='p33')        
+            tercile_seasonal_prc_df = thresholds['P33'].drop_vars(['quantile']).to_dataframe(name='p33')        
             tercile_seasonal_prc_df = tercile_seasonal_prc_df.reset_index().drop('forecastMonth', axis=1)
-            dftemp=anomalies_df.anomaly 
-            tercile_seasonal_prc_df['triggerForecast'] = (dftemp.iloc[:, :51].lt(tercile_seasonal_prc_df.iloc[:, 0], axis=0).sum(axis=1) / 51) 
-            tercile_seasonal_prc_df['triggerStatus'] = tercile_seasonal_prc_df['triggerForecast'].gt(trigger_level)
 
-            # Add the lead time index as months (e.g., Month 1, Month 2, etc.)
-            #tercile_seasonal_prc_df.index = [f"Month {i+1}" for i in tercile_seasonal_prc_df.index]
-            # Convert to dictionary
+            dftemp=anomalies_df.anomaly 
+            
+            tercile_seasonal_prc_df['triggerForecast'] = (dftemp.iloc[:, :51].lt(tercile_seasonal_prc_df.iloc[:, 0], axis=0).sum(axis=1) / 51) 
+            tercile_seasonal_prc_df['triggerStatus'] = tercile_seasonal_prc_df['triggerForecast'].gt(trigger_on_minimum_probability)
+
+
 
             tercile_seasonal_prc_df.index = range(1, len(tercile_seasonal_prc_df)+1 )
-            data_dict = tercile_seasonal_prc_df[['triggerForecast','triggerStatus']].to_dict(orient="index")
-
-                        # Save to JSON
-            json_file_path = f"{self.outputPathGrid}/climateregion_{climateRegion}.json"
-
-            with open(json_file_path, "w") as json_file:
-                json.dump(data_dict, json_file, indent=4)
+            data_dict = tercile_seasonal_prc_df[['triggerForecast','triggerStatus']].to_dict(orient="index")  
 
       
 
-            for leadtime in forecastData['tercile_lower'].keys():
+            for month in forecastData['tercile_lower'].keys():
+                
+                lead_time=month-1
+                #rlower_tercile_probability=trigger_df[month]
+                lower_tercile_file = f"{self.outputPathGrid}/rlower_tercile_probability_{lead_time}-month_{country}.tif"   
+
+                # Open the TIF file as an xarray object
+
+                rlower_tercile_probability = rioxarray.open_rasterio(lower_tercile_file)
+
+                gdf1 = filtered_gdf
+                clipped_regional_mean = rlower_tercile_probability.rio.clip(gdf1.geometry, gdf1.crs, drop=True, all_touched=True)
+
+                likelihood = round(np.nanmedian(clipped_regional_mean.values),2)
+
+                binary_clipped_regional_mean = (
+                    clipped_regional_mean > trigger_on_minimum_probability
+                    ).astype(int)
+
+                anomalies_df = binary_clipped_regional_mean.to_dataframe(name='anomaly')
+
+                percentage_greater_than_zero = (anomalies_df.anomaly.values > 0).sum() / anomalies_df.anomaly.values.size  
+
+                if percentage_greater_than_zero > trigger_on_minimum_admin_area_in_drought_extent:
+                    triggered=1
+                else:
+                    triggered=0
+
+                logging.info(f"upserting data for climate region {climateRegion} for month {month} trigger status {triggered} likelihood {likelihood}" )
+
+                logging.info(f"upserting data for climate region {climateRegion} for month {month}")
+
                 self.data.rainfall_climateregion.upsert_data_unit(
                         ForecastDataUnit(
                             climate_region_code=climateRegion,
                             climate_region_name=climateRegionName,
-                            lead_time=leadtime-1,
-                            tercile_lower=forecastData['tercile_lower'][leadtime],
-                            tercile_upper=forecastData['tercile_upper'][leadtime],
-                            forecast=forecastData['forecast'][leadtime],
-                            triggered=data_dict[leadtime]['triggerStatus'],
-                            likelihood=data_dict[leadtime]['triggerForecast'],
+                            lead_time=lead_time,# theck this -1
+                            tercile_lower=forecastData['tercile_lower'][month],
+                            tercile_upper=forecastData['tercile_upper'][month],
+                            forecast=forecastData['forecast'][month],
+                            triggered=triggered,# data_dict[month]['triggerStatus'],
+                            likelihood=likelihood,# data_dict[month]['triggerForecast'],
                         )
                     )
                 
             logging.info(f"finished extraction of rainfall forecast for climate region{climateRegion}")
 
-            for leadtime in forecastData['tercile_lower'].keys():                
-                for pcode in filtered_gdf.placeCode.unique():
-                    self.data.rainfall_admin.upsert_data_unit(
-                        ForecastDataUnit(
-                            climate_region_code=climateRegion,
-                            climate_region_name=climateRegionName,
-                            pcode=pcode,
-                            lead_time=leadtime-1,
-                            tercile_lower=forecastData['tercile_lower'][leadtime],
-                            tercile_upper=forecastData['tercile_upper'][leadtime],
-                            forecast=forecastData['forecast'][leadtime],
-                            triggered=data_dict[leadtime]['triggerStatus'],
-                            likelihood=data_dict[leadtime]['triggerForecast'],
-                        )
-                    )
-                    # 
-                    #If LEADTIME is 1, also write a file for month 0 we probably should not be doing this here. 
-                    # we discussed with IBF team that we will not upload  FOR NOW CREATING A FILE FOR LEADTIME 0
-                    ''' 
-                    if leadtime == 1:
-                        self.data.rainfall_admin.upsert_data_unit(
-                        ForecastDataUnit(
-                            climate_region_code=climateRegion,
-                            climate_region_name=climateRegionName,
-                            pcode=pcode,
-                            lead_time=0,
-                            tercile_lower=forecastData['tercile_lower'][leadtime],
-                            tercile_upper=forecastData['tercile_upper'][leadtime],
-                            forecast=forecastData['forecast'][leadtime],
-                            triggered=data_dict[leadtime]['triggerStatus'],
-                            likelihood=data_dict[leadtime]['triggerForecast'],
-                        )
-                    )'
-                    '''     
+
+    def compare_forecast_to_historical_lower_tercile(self,country,ds_hindcast, ds_forecast):
+        """
+        Compare the forecast data against the historical lower tercile (33rd percentile).    
+        Parameters:
+            ds_hindcast (xarray.Dataset): Historical hindcast dataset containing 'tprate'.
+            ds_forecast (xarray.Dataset): Forecast dataset containing 'tprate'.        
+        Returns:
+            xarray.Dataset: A dataset containing the 33rd percentile (lower tercile) 
+                            and probability of forecast being below this threshold.
+        """
+        
+  
+        probability_maps = []
+        drought_extent_maps = []
+      
+        trigger_on_minimum_probability = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-probability']    
+
+
+        
+        quantile_thr= self.settings.get_country_setting(country,"trigger_model")["tercile_treshold"]    
+
+        RASTER_FILES={}
+        
+        
+        # Iterate over each forecast month
+        for month in ds_hindcast.forecastMonth.values:
+            lead_time=month-1
+            # Extract data for the current forecast month
+            data_month = ds_hindcast['tprate'].sel(forecastMonth=month)
+            data_month2 = ds_forecast['tprate'].sel(forecastMonth=month) 
+            
+            quantile_33 = data_month.quantile(quantile_thr, dim=["time", "number"])
+
+            probability = (data_month2 <= quantile_33).sum(dim="number") / data_month2.sizes["number"]
+            
+
+
+
+            new_lat = np.linspace(probability.latitude.values.min(), probability.latitude.values.max(), probability.latitude.size * 10)
+            new_lon = np.linspace(probability.longitude.values.min(), probability.longitude.values.max(), probability.longitude.size * 10)
+            regional_mean = probability.rio.write_crs("EPSG:4326")
+            resampled_regional_mean = regional_mean.interp(latitude=new_lat, longitude=new_lon, method="nearest")
+            # Ensure the resampled DataArray has spatial dimensions
+            resampled_regional_mean = resampled_regional_mean.rio.write_crs("EPSG:4326")
+            resampled_regional_mean = resampled_regional_mean.drop_vars([coord for coord in resampled_regional_mean.coords if coord not in ['latitude', 'longitude']])      
+
+            binary_clipped_regional_mean = (resampled_regional_mean > trigger_on_minimum_probability).astype(int)
+
+            RASTER_FILES[month]=binary_clipped_regional_mean
+
+
+                        # Store results
+   
+            probability_maps.append(resampled_regional_mean)
+            drought_extent_maps.append(binary_clipped_regional_mean) 
+             
+
+
+            latitudes = resampled_regional_mean.latitude.values
+            longitudes = resampled_regional_mean.longitude.values
+       
+
+            # Define the transform        
+            transform = from_origin(longitudes[0], latitudes[0], longitudes[1] - longitudes[0], latitudes[0] - latitudes[1])
+
+            prefix='rlower_tercile_probability'    
+            
+            output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
+            data = resampled_regional_mean.values
+
+            with rasterio.open(
+                output_file,
+                'w',
+                driver='GTiff',
+                height=data.shape[0],
+                width=data.shape[1],
+                count=1,
+                dtype=data.dtype,
+                crs='+proj=latlong',
+                transform=transform,
+            ) as dst:
+                dst.write(data, 1)
+
+            prefix='rainfall_forecast' #'drought_extent'    
+            output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
+            data = binary_clipped_regional_mean.values
+
+            with rasterio.open(
+                output_file,
+                'w',
+                driver='GTiff',
+                height=data.shape[0],
+                width=data.shape[1],
+                count=1,
+                dtype=data.dtype,
+                crs='+proj=latlong',
+                transform=transform,
+            ) as dst:
+                dst.write(data, 1)
+                
+        # Combine results into new DataArrays
+        quantile_ds = xr.concat(drought_extent_maps, dim="forecastMonth")
+        probability_ds = xr.concat(probability_maps, dim="forecastMonth")
+        
+        # Save results to a new dataset
+        output_ds = xr.Dataset({
+            "quantile_33": quantile_ds,
+            "probability": probability_ds,
+          
+        })
+        
+        return RASTER_FILES
 

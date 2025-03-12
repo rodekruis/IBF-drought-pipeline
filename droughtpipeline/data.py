@@ -107,13 +107,7 @@ class RainfallClimateRegionDataUnit(ClimateRegionDataUnit):
             key = f"{lead_time}_month"
             self.likelihood[key] = int(percentage_below_tercile_lower)
             
-class DroughtForecast(TypedDict):
-    tercile_lower: float
-    tercile_upper: float
-    forecast: list
-    likelihood: float
-    season: str
-    climate_region_code: int
+ 
 
 class ForecastDataUnit(AdminDataUnit):
     """Drought forecast data unit"""
@@ -129,17 +123,6 @@ class ForecastDataUnit(AdminDataUnit):
         self.season: str = kwargs.get("season", None)
         self.climate_region_code: int = kwargs.get("climate_region_code", None)
         self.climate_region_name: str = kwargs.get("climate_region_name", None)
-        ''' 
-
-        forecast_data = kwargs.get("forecast", {})
-        if isinstance(forecast_data, dict):
-            self.forecasts: Dict[str, DroughtForecast] = {
-                key: DroughtForecast(**value) for key, value in forecast_data.items()
-            }
-        else:
-            self.forecasts = None
-
-        '''
         self.pop_affected: int = kwargs.get("pop_affected", 0)
         self.pop_affected_perc: float = kwargs.get("pop_affected_perc", 0.0)
         self.triggered: bool = kwargs.get("triggered", None)
@@ -147,33 +130,6 @@ class ForecastDataUnit(AdminDataUnit):
         self.return_period: float = kwargs.get("return_period", None)
         self.alert_class: str = kwargs.get("alert_class", None)
 
-
-class Threshold(TypedDict):
-    return_period: float
-    threshold_value: float
-
-
-
-class ThresholdDataUnit(AdminDataUnit):
-    """Trigger/alert threshold data unit"""
-
-    def __init__(self, thresholds: List[Threshold], **kwargs):
-        super().__init__(**kwargs)
-        self.thresholds: List[Threshold] = thresholds
-
-    def get_threshold(self, return_period: float) -> Threshold:
-        """Get trigger threshold by return period"""
-        threshold = next(
-            filter(
-                lambda x: x.get("return_period") == return_period,
-                self.thresholds,
-            ),
-            None,
-        )
-        if not threshold:
-            raise ValueError(f"Return period {return_period} not found")
-        else:
-            return threshold["threshold_value"]
 
 
 class AdminDataSet:
@@ -431,12 +387,6 @@ class PipelineDataSets:
     def __init__(self, country: str, settings: Settings):
         self.country = country
 
-        self.rainfall_admin = AdminDataSet(
-            country=self.country,
-            timestamp=datetime.today(),
-            adm_levels=settings.get_country_setting(country, "admin-levels"),
-        )
-
         self.rainfall_climateregion = ClimateRegionDataSet(
             country=self.country,
             timestamp=datetime.today()
@@ -445,23 +395,9 @@ class PipelineDataSets:
         self.forecast_climateregion = ClimateRegionDataSet(
             country=self.country,
             timestamp=datetime.today()
-        )
-        
+        )        
 
         self.forecast_admin = AdminDataSet(
-            country=self.country,
-            timestamp=datetime.today(),
-            adm_levels=settings.get_country_setting(country, "admin-levels"),
-        )
-        '''
-        self.forecast_climateregion = ClimateRegionDataSet(
-            country=self.country, timestamp=datetime.today(),
-             adm_levels=settings.get_country_setting(country, "admin-levels"),
-        )
-
-         '''
-
-        self.threshold_admin = AdminDataSet(
             country=self.country,
             timestamp=datetime.today(),
             adm_levels=settings.get_country_setting(country, "admin-levels"),

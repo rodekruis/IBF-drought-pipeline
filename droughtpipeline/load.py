@@ -13,12 +13,8 @@ from droughtpipeline.data import (
     AdminDataSet,
     AdminDataUnit,
     ForecastDataUnit,
-    ThresholdDataUnit,
-    ClimateRegionDataSet,
-    RainfallClimateRegionDataUnit,
-    ClimateRegionDataUnit,
-    RainfallDataUnit,
-    PipelineDataSets,
+    ClimateRegionDataSet,  
+    ClimateRegionDataUnit
 )
 from urllib.error import HTTPError
 import urllib.request, json
@@ -303,28 +299,26 @@ class Load:
         climate_region_codes=[] 
 
         DEFAULT_CURRENT_MONTH  = date.today().strftime('%b') #### This should be set in config file
-
-        ''' 
-                for entry in self.settings.get_country_setting(country,"Climate_Region"):
-                    climateRegionCode=entry['climate-region-code'] 
-                    if climateRegionCode is None:
-                        raise ValueError("Climate region not defined in config file")
-                    
-                    for key, value in entry['leadtime'][DEFAULT_CURRENT_MONTH][0].items():
-                        leadtime_value = int(value.split('-')[0])
-                        if climateRegionCode is not None:
-                            climate_regions[climateRegionCode] = {
-                                        'climateregionname': entry['name'],
-                                        'season': key,
-                                        'leadtime': leadtime_value}
-                            
-                    lead_times_list.append(leadtime_value)
-                    climate_region_codes.append(climateRegionCode)
-        '''
+  
 
  
 
         for climate_region_code in forecast_climateregion.get_climate_region_codes():
+
+            possible_events= self.settings.get_leadtime_for_climate_region_code(country, climate_region_code, DEFAULT_CURRENT_MONTH)
+
+            lead_times_list=[]
+          
+            expected_events = {}
+
+            for entry in possible_events:
+                for key, value in entry.items():
+                    season_name=key
+                    lead_time = int(value.split('-')[0])
+                    expected_events[lead_time] = season_name
+                    lead_times_list.append(lead_time)
+
+
             events = {}
             
             for lead_time in range(0, 6):
@@ -344,29 +338,27 @@ class Load:
             events = dict(sorted(events.items()))     
 
             logging.info(f"event {events} " )
-            lead_times_list=[]
 
-            for entry in self.settings.get_leadtime_for_climate_region_code(country, climate_region_code, DEFAULT_CURRENT_MONTH):
-                for key, value in entry.items():
-                    season_name=key
-                    lead_time = int(value.split('-')[0])
-                    lead_times_list.append(lead_time)
+                  
 
             climate_region_name = self.settings.get_climate_region_name_by_code(country,climate_region_code)  
 
-            if climate_region_name.split('_')[0] in ['National','national']:
-                event_name = season_name
-            else:
-                event_name = f"{climate_region_name} {season_name}"
 
-            for lead_time_event , event_type in events.items():                
-                if lead_time_event in lead_times_list:
+            for lead_time_event , event_type in events.items():     
+                # here we are assuming we will not expect two events in a climate region  with the same lead time            
+                if lead_time_event in list(expected_events.keys()): #lead_times_list:#
+                    season_name = expected_events[lead_time_event]
+
+                    if climate_region_name.split('_')[0] in ['National','national']:
+                        event_name = season_name
+                    else:
+                        event_name = f"{climate_region_name} {season_name}"
+
 
                     pcodes=threshold_climateregion.get_data_unit(climate_region_code=climate_region_code).pcodes
-
                     indicators = [
                         "population_affected",
-                        "population_affected_percentage",
+                        #"population_affected_percentage",
                         #"alert_threshold",
                         "forecast_trigger",
                         "forecast_severity",
@@ -385,14 +377,10 @@ class Load:
                                 elif indicator == "population_affected_percentage":
                                     amount = forecast_admin.pop_affected_perc
                                 elif indicator == "forecast_severity":
-                                    amount = (
-                                        1 if event_type == "trigger" else 0
-                                    )
+                                    amount =forecast_admin.triggered # ( 1 if event_type == "trigger" else 0 )
                                 elif indicator == "forecast_trigger":
                                     amount = forecast_trigger_status(
-                                        triggered=(
-                                            True if event_type == "trigger" else False
-                                        ),
+                                        triggered=(forecast_admin.triggered >= 0),# True if event_type == "trigger" else False   ),
                                         trigger_class=pipeline_will_trigger_portal,
                                     )
                                 exposure_pcodes.append({"placeCode": pcode, "amount": amount})
@@ -408,7 +396,9 @@ class Load:
                                 "eventName": event_name,
                                 "date": upload_time,
                             }
-                            statsPath=drought_extent.replace(".tif", f"{indicator}_{lead_time_event}-month_{country}_{adm_level}.json" )
+                            statsPath=drought_extent.replace(".tif", f"_{event_name}_{lead_time_event}-month_{country}_{adm_level}.json" )
+                            statsPath=statsPath.replace("rainfall_forecast", f"{indicator}")
+
                             with open(statsPath, 'w') as fp:
                                     json.dump(body, fp)
 
@@ -416,35 +406,42 @@ class Load:
                     processed_pcodes = list(set(processed_pcodes))
 
             # send trigger per lead time: event/triggers-per-leadtime
-            triggers_per_lead_time = [] 
+            
+            for lead_time_expected_event, name_event in expected_events.items():
+                event_name=name_event
 
-            for lead_time in range(0,5):#set(lead_times_list):
-                is_trigger, is_trigger_or_alert = False, False  
-                for lead_time_event, event_type in events.items():
-                    if event_type == "trigger" and lead_time  >= lead_time_event:
-                        is_trigger = True
-                    if (
-                        event_type == "trigger" or event_type == "alert"
-                    ) and lead_time >= lead_time_event:
-                        is_trigger_or_alert = True
-                triggers_per_lead_time.append(
-                    {
-                        "leadTime": f"{lead_time}-month",
-                        "triggered": is_trigger_or_alert,
-                        "thresholdReached": is_trigger,
-                    }
-                )
-            body = {
-                "countryCodeISO3": country,
-                "triggersPerLeadTime": triggers_per_lead_time,
-                "disasterType": disasterType,
-                "eventName": event_name,
-                "date": upload_time,
-            }
-            statsPath=drought_extent.replace(".tif", f"_{lead_time}-month_{country}.json" )
-            with open(statsPath, 'w') as fp:
-                    json.dump(body, fp)
-            self.ibf_api_post_request("event/triggers-per-leadtime", body=body)
+                triggers_per_lead_time = [] 
+                for lead_time in range(0,5):#set(lead_times_list):
+                    is_trigger, is_trigger_or_alert = False, False 
+
+                    for lead_time_event, event_type in events.items():
+                        if event_type == "trigger" and lead_time  >= lead_time_expected_event:
+                            is_trigger = True
+                        if (
+                            event_type == "trigger" or event_type == "alert"
+                        ) and lead_time >= lead_time_expected_event:
+                            is_trigger_or_alert = True
+                    triggers_per_lead_time.append(
+                        {
+                            "leadTime": f"{lead_time}-month",
+                            "triggered": is_trigger_or_alert,
+                            "thresholdReached": is_trigger,
+                        }
+                    )
+                body = {
+                    "countryCodeISO3": country,
+                    "triggersPerLeadTime": triggers_per_lead_time,
+                    "disasterType": disasterType,
+                    "eventName": event_name,
+                    "date": upload_time,
+                }
+                statsPath=drought_extent.replace(".tif", f"_{event_name}_{country}.json" )
+                statsPath=statsPath.replace("rainfall_forecast", "triggers_per_lead_time")
+                
+                with open(statsPath, 'w') as fp:
+                        json.dump(body, fp)
+
+                #self.ibf_api_post_request("event/triggers-per-leadtime", body=body)
 
         # END OF EVENT LOOP
         ###############################################################################################################
@@ -453,7 +450,7 @@ class Load:
 
         self.rasters_sent = []
 
-        for lead_time in range(0,4):
+        for lead_time in range(0,5):
             drought_extent_new = drought_extent.replace(".tif", f"_{lead_time}-month_{country}.tif" )            
 
             #to accompdate file name requirement in IBF portal 
@@ -471,7 +468,7 @@ class Load:
         if len(processed_pcodes) == 0:
             indicators = [
                 "population_affected",
-                "population_affected_percentage",
+                #"population_affected_percentage",
                 #"alert_threshold",
                 "forecast_trigger",
                 "forecast_severity",
@@ -678,15 +675,43 @@ class Load:
             f'AccountKey={self.secrets.get_secret("BLOB_ACCOUNT_KEY")};'
             f"EndpointSuffix=core.windows.net"
         )
-        container = self.settings.get_setting("blob_container")
+        container = self.settings.get_setting("blob_container") 
+        #blob_path = self.settings.get_setting("blob_storage_path")
         return blob_service_client.get_blob_client(container=container, blob=blob_path)
 
     def save_to_blob(self, local_path: str, file_dir_blob: str):
         """Save file to Azure Blob Storage"""
         # upload to Azure Blob Storage
+
+
         blob_client = self.__get_blob_service_client(file_dir_blob)
         with open(local_path, "rb") as upload_file:
             blob_client.upload_blob(upload_file, overwrite=True)
+
+    
+    def upload_json_files(self, local_path: str): 
+        """Find all JSON files in a directory and upload them to Azure Blob Storage"""
+        if not os.path.exists(local_path):
+            logging.info(f"Directory not found: {local_path}")
+
+            return
+        # Create a new folder in Blob Storage based on today's date
+
+        blob_storage_path= self.settings.get_setting("databases")['blob_storage_path'] 
+
+        today_date = datetime.now().strftime('%Y-%m-%d')      
+      
+
+        blob_folder = os.path.join(blob_storage_path, today_date) if blob_storage_path else today_date
+        
+        for file_name in os.listdir(local_path):
+            if file_name.endswith(".json") or file_name.startswith("rain_rp"):#            if file_name.endswith(".json"):
+                local_path_ = os.path.join(local_path, file_name)
+                blob_path = os.path.join(blob_folder, file_name) #if blob_folder else file_name
+                logging.info(f"Uploading {local_path_} to {blob_path} in Blob Storage...")                 
+                self.save_to_blob(local_path_, blob_path)
+            
+
 
     def get_from_blob(self, local_path: str, blob_path: str):
         """Get file from Azure Blob Storage"""

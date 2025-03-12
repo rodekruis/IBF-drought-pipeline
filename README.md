@@ -24,7 +24,11 @@ The pipeline follows a series of steps to retrieve, process, and store data base
 ### 3. Trigger Model
 - The trigger model defines specific rules for calculating drought thresholds. currently two options are implmented.
     - **Seasonal Rainfall Forecast (1-month):** Determines drought conditions by checking if the forecasted rainfall is below the lower tercile of the historical average based on ECMWF hindcast data.
-    - **Seasonal Rainfall Forecast (3-month):** Aggregates rainfall over 3 months and checks if the combined forecast falls below the lower tercile of the historical average.
+    - **Seasonal Rainfall Forecast (3-month):** Aggregates rainfall over 3 months and checks if the combined forecast falls below the lower tercile of the historical average.  
+
+For more details, refer to the ECMWF documentation: [Section 8.3.1 Chart Output](https://confluence.ecmwf.int/display/FUG/Section+8.3.1+Chart+output).  
+
+
 
 ### 4. Spatial Units
 - Climate regions are used for spatial aggregation. In smaller countries with a single climate zone, there will be one spatial aggregation. In larger countries with multiple climate regions, aggregation will occur based on the number of climate regions.
