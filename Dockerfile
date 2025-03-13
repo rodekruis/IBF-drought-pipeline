@@ -21,7 +21,7 @@ COPY pyproject.toml poetry.lock /
 RUN poetry config virtualenvs.create false
 RUN poetry install --no-root --no-interaction
 COPY droughtpipeline /droughtpipeline
-COPY data_updates /data_updates
+#COPY data_updates /data_updates
 #COPY tests /tests
 COPY config /config
 COPY "drought_pipeline.py" .
