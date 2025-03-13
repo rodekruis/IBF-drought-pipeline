@@ -1,0 +1,42 @@
+[tool.poetry]
+name = "droughtpipeline"
+version = "0.0.1"
+authors = [
+  "Aklilu Teklesadik <ateklesadik@redcross.nl>",
+  "Phuoc Phùng <pphung@redcross.nl>",
+  "Jacopo Margutti <jmargutti@redcross.nl>"
+]
+description = "IBF Pipeline for Drought"
+readme = "README.md"
+repository = "https://github.com/rodekruis/IBF-drought-pipeline"
+packages = [{include = "droughtpipeline"}]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+azure-identity = "*"
+azure-keyvault-secrets = "*"
+azure-storage-blob = "*"
+azure-cosmos = "*"
+beautifulsoup4 = "*"
+black = "*"
+cdsapi = "*"
+certifi = "*"
+fiona = ">=1.10b2"
+GeoAlchemy2 = "*"
+geopandas = "*"
+netCDF4 = "*"
+numpy = "*"
+pandas = "*"
+PyYAML = "*"
+python-dotenv = "*"
+rasterio = "*"
+rasterstats = "*"
+rioxarray = "*"
+shapely = "*"
+SQLAlchemy = "*"
+tqdm = "*"
+xarray = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
