@@ -20,11 +20,11 @@ WORKDIR .
 COPY pyproject.toml poetry.lock /
 RUN poetry config virtualenvs.create false
 RUN poetry install --no-root --no-interaction
-COPY floodpipeline /floodpipeline
+COPY droughtpipeline /droughtpipeline
 COPY data_updates /data_updates
 COPY tests /tests
 COPY config /config
-COPY "flood_pipeline.py" .
-COPY "run_scenario.py" .
+COPY "drought_pipeline.py" .
+#COPY "run_scenario.py" .
 
-# ENTRYPOINT ["poetry", "run", "python", "-m", "flood_pipeline"]
+# ENTRYPOINT ["poetry", "run", "python", "-m", "drought_pipeline"]
