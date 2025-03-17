@@ -44,7 +44,6 @@ countries:
     trigger_model: 
       model: seasonal_rainfall_forecast
       trigger-on-minimum-probability: 0.6 
-      trigger-on-minimum-probability-drought-extent: 0.6  
       trigger-on-minimum-admin-area-in-drought-extent: 0.5 
       tercile_treshold: 0.33
     Climate_Region:
@@ -174,7 +173,7 @@ countries:
     trigger_model: 
       model: seasonal_rainfall_forecast_3m
       trigger-on-minimum-probability: 0.33 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.05 #for drought extent(grid) overlap with  admin polygons
+      trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons
       tercile_treshold: 0.33 
     Climate_Region:
       - name: Meher
