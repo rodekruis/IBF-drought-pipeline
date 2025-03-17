@@ -26,7 +26,9 @@ COPY droughtpipeline /droughtpipeline
 #COPY data_updates /data_updates
 #COPY tests /tests
 COPY config /config
-COPY data /data
+# Create the target directories inside the container
+RUN mkdir -p /data/input /data/output 
+#COPY data /data
 COPY "drought_pipeline.py" .
 #COPY "run_scenario.py" .
 
