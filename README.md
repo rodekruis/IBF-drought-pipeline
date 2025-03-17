@@ -1,5 +1,23 @@
 # IBF Drought Pipeline
 
+## Running the Drought Pipeline with Docker Compose
+
+To run the drought pipeline for testing using Docker Compose, follow these steps:
+
+1. Ensure you have Docker and Docker Compose installed on your machine.
+
+2. Place your `.env` file in the same directory as your `docker-compose.yml` file. This file should contain the necessary environment variables for the pipeline. The variables are in `.en.example` file 
+
+3. Build and run the Docker container using Docker Compose:
+
+    ```sh
+    docker-compose up --build
+    ```
+
+This will build the Docker image and run the drought pipeline with the specified options (`--country ETH --prepare --extract --forecast --send`).
+
+You can modify the `command` section in the `docker-compose.yml` file to change the options as needed for your testing.
+
 ## Overview
 The IBF Drought Pipeline updates the IBF Drought Portal based on predefined trigger thresholds derived from various drought indicators. The current implementation uses the Seasonal Rainfall Forecast from ECMWF (European Centre for Medium-Range Weather Forecasts). Two specific indicators serve as drought trigger thresholds:
 1. 1-month Seasonal Rainfall Forecast (configured as `seasonal_rainfall_forecast`).

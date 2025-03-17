@@ -1,0 +1,9 @@
+version: "3"
+services:
+  drought_pipeline:
+    build: .
+    image: ibf-drought-pipeline
+    container_name: drought_pipeline_container
+    env_file:
+      - .env
+    command: python drought_pipeline.py --country ETH --prepare --extract --forecast --send 

@@ -17,7 +17,7 @@ RUN set -ex apt-get autoremove -y && \
     apt-get clean -y && \
     rm -rf /var/lib/apt/lists/*
 
-# add credentials and install SML pipeline
+# add credentials and install drought pipeline
 WORKDIR .
 COPY pyproject.toml poetry.lock /
 RUN poetry config virtualenvs.create false
@@ -26,6 +26,7 @@ COPY droughtpipeline /droughtpipeline
 #COPY data_updates /data_updates
 #COPY tests /tests
 COPY config /config
+COPY data /data
 COPY "drought_pipeline.py" .
 #COPY "run_scenario.py" .
 
