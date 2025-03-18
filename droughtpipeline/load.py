@@ -307,8 +307,7 @@ class Load:
 
             possible_events= self.settings.get_leadtime_for_climate_region_code(country, climate_region_code, DEFAULT_CURRENT_MONTH)
 
-            lead_times_list=[]
-          
+            lead_times_list=[]          
             expected_events = {}
 
             for entry in possible_events:
@@ -350,7 +349,7 @@ class Load:
                     season_name = expected_events[lead_time_event]
 
                     if climate_region_name.split('_')[0] in ['National','national']:
-                        event_name = season_name
+                        event_name = 'Drought' #season_name 
                     else:
                         event_name = f"{climate_region_name} {season_name}"
 
@@ -441,7 +440,7 @@ class Load:
                 with open(statsPath, 'w') as fp:
                         json.dump(body, fp)
 
-                #self.ibf_api_post_request("event/triggers-per-leadtime", body=body)
+                #self.ibf_api_post_request("event/triggers-per-leadtime", body=body) not implemented in IBF API drought
 
         # END OF EVENT LOOP
         ###############################################################################################################
@@ -502,9 +501,7 @@ class Load:
                             "eventName": None,  # this is a specific check IBF uses to establish no-trigger
                             "date": upload_time,
                         }
-                        self.ibf_api_post_request(
-                            "admin-area-dynamic-data/exposure", body=body
-                        )
+                        self.ibf_api_post_request(  "admin-area-dynamic-data/exposure", body=body                    )
 
         # send notification
         body = {
@@ -512,7 +509,7 @@ class Load:
             "disasterType": disasterType,
             "date": upload_time,
         }
-        #self.ibf_api_post_request("notification/send", body=body)
+         
         self.ibf_api_post_request("events/process", body=body)
 
                 
