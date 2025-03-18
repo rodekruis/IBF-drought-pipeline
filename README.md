@@ -79,7 +79,7 @@ To implement a new drought indicator:
 
 ## Adding a New Country
 1. **Update Configuration:** Add the new country to the configuration file.
-2. **Define Climate Regions:** Create and upload the climate regions dataset for the new country to the Azure Cosmos database.
+2. **Define Climate Regions:** Create and upload the climate regions dataset for the new country to the Azure Cosmos database. Look at the [add_climate region script](data_updates/add_climateregions_cosmos.py) for instruction on how to do this 
 
 
 

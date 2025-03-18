@@ -21,7 +21,7 @@ class ClimateRegionDataUnit:
         self.pcodes: dict = kwargs.get("pcodes")  # pcodes of associated administrative divisions
 
 class RainfallDataUnit(AdminDataUnit):
-    """River discharge data unit - station"""
+    """Rainfall data unit - admin"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)    
