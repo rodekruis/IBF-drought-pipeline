@@ -90,7 +90,7 @@ countries:
       trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons 
       tercile_treshold: 0.33
     Climate_Region:
-      - name: National
+      - name: Drought
         climate-region-code: 1
         leadtime:
           Jan: 
