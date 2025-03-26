@@ -320,7 +320,7 @@ class Forecast:
             flood_raster_lead_time = self.output_data_path + f"/drought_extent_{lead_time}-month_{country}.tif" 
             
             aff_pop_raster_lead_time = self.aff_pop_raster.replace(
-                ".tif", f"_{lead_time}.tif"
+                ".tif", f"_{lead_time}_{country}.tif"
             )
             if os.path.exists(aff_pop_raster_lead_time):
                 os.remove(aff_pop_raster_lead_time)
@@ -375,7 +375,7 @@ class Forecast:
 
             for lead_time in self.data.forecast_admin.get_lead_times():
                 aff_pop_raster_lead_time = self.aff_pop_raster.replace(
-                    ".tif", f"_{lead_time}.tif"
+                    ".tif", f"_{lead_time}_{country}.tif"
                 )
                 if os.path.exists(aff_pop_raster_lead_time):
                     # perform zonal statistics on affected population raster

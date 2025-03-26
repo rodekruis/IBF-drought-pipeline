@@ -294,9 +294,9 @@ class Load:
         processed_pcodes, triggered_lead_times =  [], []
         #climateregions=forecast_data.get_climate_region_codes()
 
-        climate_regions= {}
-        lead_times_list = []
-        climate_region_codes=[] 
+        #climate_regions= {}
+        #lead_times_list = []
+        #climate_region_codes=[] 
 
         DEFAULT_CURRENT_MONTH  = date.today().strftime('%b') #### This should be set in config file
   
@@ -453,11 +453,13 @@ class Load:
             drought_extent_new = drought_extent.replace(".tif", f"_{lead_time}-month_{country}.tif" )            
 
             #to accompdate file name requirement in IBF portal 
-            #shutil.copy(drought_extent_new,drought_extent_new.replace("rainfall_forecast", "rain_rp")) 
+
             rainf_extent=drought_extent_new.replace("rainfall_forecast", "rlower_tercile_probability")
+            rain_rp = drought_extent_new.replace("rainfall_forecast", "rain_rp")
+            shutil.copy(rainf_extent,drought_extent_new.replace("rainfall_forecast", "rain_rp")) 
            
-            self.rasters_sent.append(rainf_extent)
-            files = {"file": open(rainf_extent, "rb")}
+            self.rasters_sent.append(rain_rp)
+            files = {"file": open(rain_rp, "rb")}
             self.ibf_api_post_request( "admin-area-dynamic-data/raster/drought", files=files )
 
 
