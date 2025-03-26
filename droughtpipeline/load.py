@@ -404,43 +404,6 @@ class Load:
                             self.ibf_api_post_request("admin-area-dynamic-data/exposure", body=body )
                     processed_pcodes = list(set(processed_pcodes))
 
-            # send trigger per lead time: event/triggers-per-leadtime
-            
-            for lead_time_expected_event, name_event in expected_events.items():
-                event_name=name_event
-
-                triggers_per_lead_time = [] 
-                for lead_time in range(0,4):#set(lead_times_list):
-                    is_trigger, is_trigger_or_alert = False, False 
-
-                    for lead_time_event, event_type in events.items():
-                        if event_type == "trigger" and lead_time  >= lead_time_expected_event:
-                            is_trigger = True
-                        if (
-                            event_type == "trigger" or event_type == "alert"
-                        ) and lead_time >= lead_time_expected_event:
-                            is_trigger_or_alert = True
-                    triggers_per_lead_time.append(
-                        {
-                            "leadTime": f"{lead_time}-month",
-                            "triggered": is_trigger_or_alert,
-                            "thresholdReached": is_trigger,
-                        }
-                    )
-                body = {
-                    "countryCodeISO3": country,
-                    "triggersPerLeadTime": triggers_per_lead_time,
-                    "disasterType": disasterType,
-                    "eventName": event_name,
-                    "date": upload_time,
-                }
-                statsPath=drought_extent.replace(".tif", f"_{event_name}_{country}.json" )
-                statsPath=statsPath.replace("rainfall_forecast", "triggers_per_lead_time")
-                
-                with open(statsPath, 'w') as fp:
-                        json.dump(body, fp)
-
-                #self.ibf_api_post_request("event/triggers-per-leadtime", body=body) not implemented in IBF API drought
 
         # END OF EVENT LOOP
         ###############################################################################################################
