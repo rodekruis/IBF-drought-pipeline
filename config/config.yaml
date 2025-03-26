@@ -34,7 +34,6 @@ countries:
   - name: KEN
     admin-levels:
       - 1
-    #trigger-on-lead-time: 3 
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
@@ -42,9 +41,9 @@ countries:
       med: 0.75
       max: 0.85
     trigger_model: 
-      model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.6 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.5 
+      model: seasonal_rainfall_forecast_3m
+      trigger-on-minimum-probability: 0.3 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.1 
       tercile_treshold: 0.33
     Climate_Region:
       - name: National
@@ -85,7 +84,7 @@ countries:
       med: 0.75
       max: 0.85
     trigger_model: 
-      model: seasonal_rainfall_forecast
+      model: seasonal_rainfall_forecast_3m
       trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
       trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons 
       tercile_treshold: 0.33
@@ -120,7 +119,7 @@ countries:
   - name: UGA
     admin-levels:
       - 2
-    trigger-on-lead-time: 3 # number of months to trigger alert
+    #trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
@@ -129,8 +128,8 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.4 #for drought extent(grid) overlap with  admin polygons
+      trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons
       tercile_treshold: 0.33 
     Climate_Region:
       - name: National

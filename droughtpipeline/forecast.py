@@ -317,7 +317,7 @@ class Forecast:
         flood_shapes = []
 
         for lead_time in self.data.forecast_admin.get_lead_times():
-            flood_raster_lead_time = self.output_data_path + f"/rain_rp_{lead_time}-month_{country}.tif" 
+            flood_raster_lead_time = self.output_data_path + f"/drought_extent_{lead_time}-month_{country}.tif" 
             
             aff_pop_raster_lead_time = self.aff_pop_raster.replace(
                 ".tif", f"_{lead_time}.tif"

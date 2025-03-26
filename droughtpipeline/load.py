@@ -345,7 +345,7 @@ class Load:
 
             for lead_time_event , event_type in events.items():     
                 # here we are assuming we will not expect two events in a climate region  with the same lead time            
-                if lead_time_event in list(expected_events.keys()): #lead_times_list:#
+                if lead_time_event in list(expected_events.keys()) and lead_time_event < 4 : # no upload for lead time greater than 3 months    
                     season_name = expected_events[lead_time_event]
 
                     if climate_region_name.split('_')[0] in ['National','national']:
@@ -410,7 +410,7 @@ class Load:
                 event_name=name_event
 
                 triggers_per_lead_time = [] 
-                for lead_time in range(0,5):#set(lead_times_list):
+                for lead_time in range(0,4):#set(lead_times_list):
                     is_trigger, is_trigger_or_alert = False, False 
 
                     for lead_time_event, event_type in events.items():
@@ -449,12 +449,12 @@ class Load:
 
         self.rasters_sent = []
 
-        for lead_time in range(0,5):
+        for lead_time in range(0,4):
             drought_extent_new = drought_extent.replace(".tif", f"_{lead_time}-month_{country}.tif" )            
 
             #to accompdate file name requirement in IBF portal 
             #shutil.copy(drought_extent_new,drought_extent_new.replace("rainfall_forecast", "rain_rp")) 
-            rainf_extent=drought_extent_new.replace("rainfall_forecast", "rain_rp")
+            rainf_extent=drought_extent_new.replace("rainfall_forecast", "rlower_tercile_probability")
            
             self.rasters_sent.append(rainf_extent)
             files = {"file": open(rainf_extent, "rb")}
@@ -702,7 +702,7 @@ class Load:
         blob_folder = os.path.join(blob_storage_path, today_date) if blob_storage_path else today_date
         
         for file_name in os.listdir(local_path):
-            if file_name.endswith(".json") or file_name.startswith("rain_rp"):#            if file_name.endswith(".json"):
+            if file_name.endswith(".json") or file_name.endswith(".tif"):#            if file_name.endswith(".json"):
                 local_path_ = os.path.join(local_path, file_name)
                 blob_path = os.path.join(blob_folder, file_name) #if blob_folder else file_name
                 logging.info(f"Uploading {local_path_} to {blob_path} in Blob Storage...")                 

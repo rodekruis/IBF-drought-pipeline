@@ -382,7 +382,7 @@ class Extract:
         #tprate_forecast_mean = tprate_forecast_mean * tprate_forecast_mean.numdays * 24 * 60 * 60 * 1000
         tprate_forecast_mean.attrs['units'] = 'mm'
 
-        self.save_to_geotiff(tprate_forecast_mean,country,prefix='rain_rp')
+        #self.save_to_geotiff(tprate_forecast_mean,country,prefix='rain_rp')
          
 
         for climateRegion in self.data.threshold_climateregion.get_climate_region_codes():
@@ -603,8 +603,9 @@ class Extract:
                 transform=transform,
             ) as dst:
                 dst.write(data, 1)
+            
 
-            prefix='rainfall_forecast' #'drought_extent'    
+            prefix='drought_extent' #'drought_extent'    
             output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
             data = binary_clipped_regional_mean.values
 
@@ -620,6 +621,8 @@ class Extract:
                 transform=transform,
             ) as dst:
                 dst.write(data, 1)
+                
+            
                 
         # Combine results into new DataArrays
         quantile_ds = xr.concat(drought_extent_maps, dim="forecastMonth")
