@@ -94,29 +94,29 @@ countries:
         climate-region-code: 1
         leadtime:
           Jan: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Feb: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Mar: 
-            - DRY_SEASON: "0-month"
+            - Drought: "0-month"
           Apr: 
-            - DRY_SEASON: "6-month"
+            - Drought: "6-month"
           May: 
-            - DRY_SEASON: "5-month"
+            - Drought: "5-month"
           Jun: 
-            - DRY_SEASON: "4-month"
+            - Drought: "4-month"
           Jul: 
-            - WET_SEASON : "3-month"
+            - Drought : "3-month"
           Aug: 
-            - WET_SEASON: "2-month"
+            - Drought: "2-month"
           Sep: 
-            - WET_SEASON: "1-month"
+            - Drought: "1-month"
           Oct: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Nov: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Dec: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
   - name: UGA
     admin-levels:
       - 2
@@ -311,26 +311,26 @@ countries:
         climate-region-code: 1
         leadtime:
           Jan: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Feb: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Mar: 
-            - DRY_SEASON: "0-month"
+            - Drought: "0-month"
           Apr: 
-            - DRY_SEASON: "0-month"
+            - Drought: "6-month"
           May: 
-            - DRY_SEASON: "0-month"
+            - Drought: "5-month"
           Jun: 
-            - DRY_SEASON: "0-month"
+            - Drought: "4-month"
           Jul: 
-            - WET_SEASON : "3-month"
+            - Drought: "3-month"
           Aug: 
-            - WET_SEASON: "2-month"
+            - Drought: "2-month"
           Sep: 
-            - WET_SEASON: "1-month"
+            - Drought: "1-month"
           Oct: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Nov: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"
           Dec: 
-            - WET_SEASON: "0-month"
+            - Drought: "0-month"

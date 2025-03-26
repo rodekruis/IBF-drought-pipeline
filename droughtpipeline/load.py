@@ -349,7 +349,7 @@ class Load:
                     season_name = expected_events[lead_time_event]
 
                     if climate_region_name.split('_')[0] in ['National','national']:
-                        event_name = 'Drought' #season_name 
+                        event_name = season_name 
                     else:
                         event_name = f"{climate_region_name} {season_name}"
 
