@@ -30,6 +30,6 @@ COPY config /config
 RUN mkdir -p /data/input /data/output 
 #COPY data /data
 COPY "drought_pipeline.py" .
-#COPY "run_scenario.py" .
+COPY "run_scenario.py" .
 
 # ENTRYPOINT ["poetry", "run", "python", "-m", "drought_pipeline"]

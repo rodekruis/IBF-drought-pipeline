@@ -138,8 +138,8 @@ class Load:
 
     def get_population_density(self, country: str, file_path: str):
         """Get population density data from worldpop and save to file_path"""
-        r = requests.get(
-            f"{self.settings.get_setting('worldpop_url')}/{country.upper()}/{country.lower()}_ppp_2022_1km_UNadj_constrained.tif"
+        r = requests.get(            
+             f"{self.settings.get_setting('worldpop_url')}/{country.upper()}/{country.lower()}_ppp_2020_UNadj_constrained.tif" #f"{self.settings.get_setting('worldpop_url')}/{country.upper()}/{country.lower()}_ppp_2022_1km_UNadj_constrained.tif" 
         )
         if "404 Not Found" in str(r.content):
             raise FileNotFoundError(
@@ -278,6 +278,7 @@ class Load:
         forecast_climateregion: ClimateRegionDataSet,
         drought_extent: str = None,
         upload_time: str = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        debug: bool = False,
     ):
         """Send flood forecast data to IBF API"""
 
@@ -298,7 +299,12 @@ class Load:
         #lead_times_list = []
         #climate_region_codes=[] 
 
-        DEFAULT_CURRENT_MONTH  = date.today().strftime('%b') #### This should be set in config file
+        if debug:
+            DEFAULT_CURRENT_MONTH = os.getenv("DEFAULT_MONTH", date.today().strftime('%b'))
+        else:
+            DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
+
+        #DEFAULT_CURRENT_MONTH  =  date.today().strftime('%b') #### This should be set in config file
   
 
  
@@ -349,7 +355,7 @@ class Load:
                     season_name = expected_events[lead_time_event]
 
                     if climate_region_name.split('_')[0] in ['National','national']:
-                        event_name = 'Drought' #season_name 
+                        event_name = season_name 
                     else:
                         event_name = f"{climate_region_name} {season_name}"
 
