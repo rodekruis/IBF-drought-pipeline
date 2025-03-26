@@ -60,19 +60,20 @@ countries:
           May: 
             - MAM: "0-month"
           Jun: 
-            - OND: "3-month"
+            - OND: "4-month"
           Jul: 
-            - OND: "2-month"
+            - OND: "3-month"
           Aug: 
-            - OND: "1-month"
+            - OND: "2-month"
           Sep: 
-            - OND: "0-month"
+            - OND: "1-month"
           Oct: 
             - OND: "0-month"
           Nov: 
             - OND: "0-month"
           Dec: 
             - MAM: "3-month"
+            - OND: "0-month"
   - name: LSO
     admin-levels: 
       - 1
@@ -99,11 +100,11 @@ countries:
           Mar: 
             - DRY_SEASON: "0-month"
           Apr: 
-            - DRY_SEASON: "0-month"
+            - DRY_SEASON: "6-month"
           May: 
-            - DRY_SEASON: "0-month"
+            - DRY_SEASON: "5-month"
           Jun: 
-            - DRY_SEASON: "0-month"
+            - DRY_SEASON: "4-month"
           Jul: 
             - WET_SEASON : "3-month"
           Aug: 
@@ -179,17 +180,17 @@ countries:
         climate-region-code: 1
         leadtime:
           Jan: 
-            - JAS: "6-month"
-          Feb: 
             - JAS: "5-month"
-          Mar: 
+          Feb: 
             - JAS: "4-month"
-          Apr: 
+          Mar: 
             - JAS: "3-month"
-          May: 
+          Apr: 
             - JAS: "2-month"
-          Jun: 
+          May: 
             - JAS: "1-month"
+          Jun: 
+            - JAS: "0-month"
           Jul: 
             - JAS: "0-month"
           Aug: 
@@ -197,11 +198,11 @@ countries:
           Sep: 
             - JAS: "0-month"
           Oct: 
-            - JAS: "9-month"
-          Nov: 
             - JAS: "8-month"
-          Dec: 
+          Nov: 
             - JAS: "7-month"
+          Dec: 
+            - JAS: "6-month"
       - name: Belg
         climate-region-code: 2
         leadtime:
@@ -211,13 +212,15 @@ countries:
             - MAM: "0-month"
           Mar: 
             - MAM: "0-month"
+            - JAS: "3-month"
           Apr: 
             - MAM: "0-month"
-            - JAS: "3-month"
-          May: 
             - JAS: "2-month"
-          Jun: 
+          May: 
+            - MAM: "0-month"
             - JAS: "1-month"
+          Jun: 
+            - JAS: "0-month"
           Jul: 
             - JAS: "0-month"
           Aug: 
@@ -279,7 +282,7 @@ countries:
           Aug: 
             - OND: "2-month"
           Sep: 
-            -OND: "1-month"
+            - OND: "1-month"
           Oct: 
             - OND: "0-month"
           Nov: 
