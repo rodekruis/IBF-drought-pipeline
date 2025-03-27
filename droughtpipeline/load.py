@@ -300,7 +300,7 @@ class Load:
         #climate_region_codes=[] 
 
         if debug:
-            DEFAULT_CURRENT_MONTH = os.getenv("DEFAULT_MONTH", date.today().strftime('%b'))
+            DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
         else:
             DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
 
