@@ -158,7 +158,9 @@ class Extract:
         currentMonth=datetime.today().strftime("%m")
 
         if debug:     
-            DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", datetime.today().strftime('%b'))
+            currentYear = os.getenv("CURRENT_YEAR_TEST", datetime.today().strftime('%Y'))
+
+            DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", datetime.today().strftime('%b'))            
             currentMonth = datetime.strptime(DEFAULT_CURRENT_MONTH, "%b").strftime("%m")
             #currentMonth=(datetime.today() - timedelta(days=31)).strftime("%m")
         # Download netcdf file
