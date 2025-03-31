@@ -149,36 +149,45 @@ class Forecast:
         secrets.check_secrets([])
         self.secrets = secrets
 
-    def compute_forecast(self):
+    def compute_forecast(self,debug: bool = False):
         """
         Forecast floods based on river discharge data
         """
         os.makedirs(self.input_data_path, exist_ok=True)
         os.makedirs(self.output_data_path, exist_ok=True)
-        self.compute_forecast_admin()
+        self.compute_forecast_admin(debug=debug)
         
 
-    def compute_forecast_admin(self):
+    def compute_forecast_admin(self,debug: bool = False):
         """
         Forecast drought per climate region based on different models for now ecmwf seasonal rainfall forecast is implmented  
         1. determine if trigger level is reached, with which probability, and alert class
         2. compute drought extent
         3. compute people affected
         """
-        self.__compute_triggers()
+        self.__compute_triggers(debug=debug)
         if self.data.forecast_admin.is_any_triggered():
             self.__compute_affected_pop()
 
-    def __compute_triggers(self):
+    def __compute_triggers(self,debug: bool = False):
         """Determine if trigger level is reached, its probability, and the alert class"""
 
         country = self.data.threshold_climateregion.country
+        trigger_on_minimum_probability = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-probability']
 
         # remove this line if we are uploading for mulltiple triggers 
+        if debug:
+            scenario = os.getenv("SCENARIO", "Forecast")
+            if scenario == "Trigger":
+                trigger_on_minimum_probability = 0.1
+            elif scenario == "NoTrigger":
+                trigger_on_minimum_probability = 0.9
+            elif scenario == "Warning":
+                trigger_on_minimum_probability = 0.3
 
 
 
-        trigger_on_minimum_probability = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-probability']
+
         trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']      
    
 
@@ -192,14 +201,11 @@ class Forecast:
         climate_regions= {}
 
         current_month = date.today().strftime('%b')  # 'Feb' for February check if this can be passed from settings climate_regions should come form settings file
-        admin_levels=self.settings.get_country_setting(country, "admin-levels")
-
-
-        
+        admin_levels=self.settings.get_country_setting(country, "admin-levels")        
 
   
  
-        
+        ''' 
         for entry in self.settings.get_country_setting(country,"Climate_Region"):
  
             climateRegionCode=entry['climate-region-code'] 
@@ -211,7 +217,7 @@ class Forecast:
                             'leadtime': int(value.split('-')[0])}
                 else:
                     raise ValueError("climate region not defined in config file ") 
-                
+        '''  
    
 
         for climateregion in self.data.threshold_climateregion.get_climate_region_codes():
@@ -320,7 +326,7 @@ class Forecast:
             flood_raster_lead_time = self.output_data_path + f"/drought_extent_{lead_time}-month_{country}.tif" 
             
             aff_pop_raster_lead_time = self.aff_pop_raster.replace(
-                ".tif", f"_{lead_time}.tif"
+                ".tif", f"_{lead_time}_{country}.tif"
             )
             if os.path.exists(aff_pop_raster_lead_time):
                 os.remove(aff_pop_raster_lead_time)
@@ -375,7 +381,7 @@ class Forecast:
 
             for lead_time in self.data.forecast_admin.get_lead_times():
                 aff_pop_raster_lead_time = self.aff_pop_raster.replace(
-                    ".tif", f"_{lead_time}.tif"
+                    ".tif", f"_{lead_time}_{country}.tif"
                 )
                 if os.path.exists(aff_pop_raster_lead_time):
                     # perform zonal statistics on affected population raster

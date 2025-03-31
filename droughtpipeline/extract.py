@@ -31,6 +31,8 @@ import rioxarray
 
 import numpy as np
 import warnings
+from rasterio.mask import mask
+
 warnings.simplefilter("ignore", category=RuntimeWarning)
 
 supported_sources = ["ECMWF"]
@@ -155,9 +157,12 @@ class Extract:
         currentYear=datetime.today().strftime("%Y")
         currentMonth=datetime.today().strftime("%m")
 
-        if debug:       
-            currentYear=(datetime.today() - timedelta(days=31)).strftime("%Y")
-            currentMonth=(datetime.today() - timedelta(days=31)).strftime("%m")
+        if debug:     
+            currentYear = os.getenv("CURRENT_YEAR_TEST", datetime.today().strftime('%Y'))
+
+            DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", datetime.today().strftime('%b'))            
+            currentMonth = datetime.strptime(DEFAULT_CURRENT_MONTH, "%b").strftime("%m")
+            #currentMonth=(datetime.today() - timedelta(days=31)).strftime("%m")
         # Download netcdf file
         logging.info(f"downloading ecmwf data ")
         
@@ -273,11 +278,19 @@ class Extract:
         
         admin_level_= self.settings.get_country_setting(country, "admin-levels")
  
-        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']  
-
-
-        
+        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']
         trigger_on_minimum_probability = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-probability']
+
+        if debug:
+            scenario = os.getenv("SCENARIO", "Forecast")
+            if scenario == "Trigger":
+                trigger_on_minimum_probability = 0.1
+            elif scenario == "NoTrigger":
+                trigger_on_minimum_probability = 0.9
+            elif scenario == "Warning":
+                trigger_on_minimum_probability = 0.3
+       
+
         
         trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']     
         
@@ -325,7 +338,7 @@ class Extract:
         )
 
         if triggermodel=='seasonal_rainfall_forecast':
-            trigger_df= self.compare_forecast_to_historical_lower_tercile(country,ds_hindcast, ds_forecast)
+            trigger_df= self.compare_forecast_to_historical_lower_tercile(country,ds_hindcast, ds_forecast,trigger_on_minimum_probability)
 
             tprate_forecast = ds_forecast['tprate'] 
             tprate_hindcast = ds_hindcast['tprate']  
@@ -346,7 +359,7 @@ class Extract:
             anomalies_tp.attrs['long_name'] = 'Total precipitation anomaly'
 
         elif triggermodel=='seasonal_rainfall_forecast_3m':
-            trigger_df= self.compare_forecast_to_historical_lower_tercile(country,ds_hindcast_3m, seas5_forecast_3m)
+            trigger_df= self.compare_forecast_to_historical_lower_tercile(country,ds_hindcast_3m, seas5_forecast_3m,trigger_on_minimum_probability)
             tprate_forecast = seas5_forecast_3m['tprate']
 
             tprate_hindcast = ds_hindcast_3m['tprate']  
@@ -521,7 +534,7 @@ class Extract:
             logging.info(f"finished extraction of rainfall forecast for climate region{climateRegion}")
 
 
-    def compare_forecast_to_historical_lower_tercile(self,country,ds_hindcast, ds_forecast):
+    def compare_forecast_to_historical_lower_tercile(self,country,ds_hindcast, ds_forecast,trigger_on_minimum_probability):
         """
         Compare the forecast data against the historical lower tercile (33rd percentile).    
         Parameters:
@@ -536,7 +549,7 @@ class Extract:
         probability_maps = []
         drought_extent_maps = []
       
-        trigger_on_minimum_probability = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-probability']    
+        #trigger_on_minimum_probability = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-probability']    
 
 
         
@@ -588,29 +601,60 @@ class Extract:
 
             prefix='rlower_tercile_probability'    
             
+            
+            temp_output = f"{self.outputPathGrid}/temp_{prefix}.tif"
             output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
+
             data = resampled_regional_mean.values
 
             with rasterio.open(
-                output_file,
+                temp_output,
                 'w',
                 driver='GTiff',
                 height=data.shape[0],
                 width=data.shape[1],
                 count=1,
                 dtype=data.dtype,
-                crs='+proj=latlong',
+                crs='EPSG:4326',
                 transform=transform,
             ) as dst:
                 dst.write(data, 1)
+
+ 
+
+            # Download admin boundaries from  Natural Earth
+            url = "https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip"
+            admin0 = gpd.read_file(url)
+            admin_gdf=admin0.query("ADM0_A3 == @country")
+            admin_gdf = admin_gdf.to_crs('EPSG:4326')  # Ensure CRS matches raster
+
+
+            # Clip using rasterio.mask
+            with rasterio.open(temp_output) as src:
+                clipped_image, clipped_transform = mask(src, admin_gdf.geometry, crop=True)
+                clipped_meta = src.meta.copy()
+
+            # Update metadata
+            clipped_meta.update({
+                "height": clipped_image.shape[1],
+                "width": clipped_image.shape[2],
+                "transform": clipped_transform
+            })
+
+            # Save clipped raster
+            with rasterio.open(output_file, 'w', **clipped_meta) as dst:
+                dst.write(clipped_image)
+
+
             
 
             prefix='drought_extent' #'drought_extent'    
             output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
+            temp_output = f"{self.outputPathGrid}/temp_{prefix}.tif"
             data = binary_clipped_regional_mean.values
 
             with rasterio.open(
-                output_file,
+                temp_output,
                 'w',
                 driver='GTiff',
                 height=data.shape[0],
@@ -621,6 +665,22 @@ class Extract:
                 transform=transform,
             ) as dst:
                 dst.write(data, 1)
+
+            # Clip using rasterio.mask
+            with rasterio.open(temp_output) as src:
+                clipped_image, clipped_transform = mask(src, admin_gdf.geometry, crop=True)
+                clipped_meta = src.meta.copy()
+
+            # Update metadata
+            clipped_meta.update({
+                "height": clipped_image.shape[1],
+                "width": clipped_image.shape[2],
+                "transform": clipped_transform
+            })
+
+            # Save clipped raster
+            with rasterio.open(output_file, 'w', **clipped_meta) as dst:
+                dst.write(clipped_image)
                 
             
                 

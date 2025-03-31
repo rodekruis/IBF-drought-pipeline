@@ -58,7 +58,7 @@ class Pipeline:
         datetimestart: datetime = date.today(),
         datetimeend: datetime = date.today() + timedelta(days=1),
     ):
-        """Run the flood data pipeline"""
+        """Run the drought data pipeline"""
 
         if prepare:
             logging.info("prepare ecmwf data")
@@ -88,7 +88,7 @@ class Pipeline:
 
         if forecast:
             logging.info("forecast drought")
-            self.forecast.compute_forecast()
+            self.forecast.compute_forecast(debug=debug)
             if save:
                 logging.info("save drought forecasts to storage")
                 self.load.save_pipeline_data(
@@ -105,11 +105,15 @@ class Pipeline:
                     end_date=datetimeend,
                 )
             logging.info("send data to IBF API")
+
+
+
             self.load.send_to_ibf_api(
                 forecast_data=self.data.forecast_admin,
                 threshold_climateregion=self.data.threshold_climateregion,
                 forecast_climateregion=self.data.forecast_climateregion,
                 drought_extent=self.forecast.drought_extent_raster,
+                debug=debug,
             )
             logging.info("send data to 510 datalack")
             self.load.upload_json_files( 

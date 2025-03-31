@@ -21,7 +21,8 @@ droughts:
  
 
 auxiliary:
-  worldpop_url: https://data.worldpop.org/GIS/Population/Global_2021_2022_1km_UNadj/constrained/2022
+  #worldpop_url: https://data.worldpop.org/GIS/Population/Global_2021_2022_1km_UNadj/constrained/2022
+  worldpop_url: https://data.worldpop.org/GIS/Population/Global_2000_2020_Constrained/2020/maxar_v1/
 
 databases:
   blob_container: ibfdatapipelines
@@ -106,7 +107,7 @@ countries:
           Jun: 
             - Drought: "4-month"
           Jul: 
-            - Drought : "3-month"
+            - Drought: "3-month"
           Aug: 
             - Drought: "2-month"
           Sep: 
