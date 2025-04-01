@@ -43,7 +43,7 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast_3m
-      trigger-on-minimum-probability: 0.3 
+      trigger-on-minimum-probability: 0.2 
       trigger-on-minimum-admin-area-in-drought-extent: 0.1 
       tercile_treshold: 0.33
     Climate_Region:

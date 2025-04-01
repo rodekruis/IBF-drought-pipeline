@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 import click
 
 
+
 @click.command()
 @click.option("--country", help="country ISO3", default="LSO")
 @click.option("--prepare", help="prepare ECMWF data", default=False, is_flag=True)
