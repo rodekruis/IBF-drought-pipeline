@@ -305,6 +305,7 @@ class Load:
             DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
             upload_time_ = datetime(int(DEFAULT_CURRENT_YEAR), int(DEFAULT_CURRENT_MONTH_NUMERIC), 1, 0, 0, 0)
             upload_time = upload_time_.strftime("%Y-%m-%dT%H:%M:%SZ") 
+            logging.info(f"upload_time {upload_time} {upload_time_} {DEFAULT_CURRENT_MONTH_NUMERIC} {DEFAULT_CURRENT_YEAR}" )
         else:
             DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
 
