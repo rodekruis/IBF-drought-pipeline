@@ -63,7 +63,9 @@ def convert_to_mm_per_month(hindcast, forecast):
     year = ds_hindcast.time.dt.year.values[0]
     
     # Calculate the number of days in each forecast month
-    days_in_month = [calendar.monthrange(year, month + fcmonth - 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
+    #days_in_month = [calendar.monthrange(year, month + fcmonth - 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
+
+    days_in_month = [calendar.monthrange(year, ((month + fcmonth - 1) - 1) % 12 + 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
     
     # Assign the number of days as a coordinate to the dataset
     ds = ds_hindcast.assign_coords(numdays=('forecastMonth', days_in_month))
