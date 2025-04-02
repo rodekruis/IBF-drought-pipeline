@@ -301,8 +301,10 @@ class Load:
 
         if debug:
             DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
-            DEFAULT_CURRENT_MONTH_NUMERIC = os.getenv("CURRENT_MONTH_TEST", date.today().month)
+            DEFAULT_CURRENT_MONTH_NUMERIC = datetime.strptime(DEFAULT_CURRENT_MONTH, '%b').month          
+
             DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
+
             upload_time_ = datetime(int(DEFAULT_CURRENT_YEAR), int(DEFAULT_CURRENT_MONTH_NUMERIC), 1, 0, 0, 0)
             upload_time = upload_time_.strftime("%Y-%m-%dT%H:%M:%SZ") 
             logging.info(f"upload_time {upload_time} {upload_time_} {DEFAULT_CURRENT_MONTH_NUMERIC} {DEFAULT_CURRENT_YEAR}" )
