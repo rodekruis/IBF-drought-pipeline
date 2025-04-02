@@ -16,6 +16,7 @@ import pandas as pd
 import xarray as xr
 from rasterstats import zonal_stats
 from rasterio.transform import from_origin
+from rasterio.crs import CRS
 import rasterio
 import logging
 import itertools
@@ -218,7 +219,7 @@ class Extract:
                 width=data.shape[1],
                 count=1,
                 dtype=data.dtype,
-                crs='+proj=latlong',
+                crs=CRS.from_epsg(4326),
                 transform=transform,
             ) as dst:
                 dst.write(data, 1)
