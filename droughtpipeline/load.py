@@ -301,8 +301,9 @@ class Load:
 
         if debug:
             DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
-            DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().strftime('%b'))
-            upload_time_ = datetime(DEFAULT_CURRENT_YEAR, DEFAULT_CURRENT_MONTH, 1, 0, 0, 0)
+            DEFAULT_CURRENT_MONTH_NUMERIC = os.getenv("CURRENT_MONTH_NUMERIC_TEST", date.today().month)
+            DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
+            upload_time_ = datetime(int(DEFAULT_CURRENT_YEAR), int(DEFAULT_CURRENT_MONTH_NUMERIC), 1, 0, 0, 0)
             upload_time = upload_time_.strftime("%Y-%m-%dT%H:%M:%SZ") 
         else:
             DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
