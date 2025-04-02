@@ -481,6 +481,12 @@ class Load:
                         }
                         self.ibf_api_post_request(  "admin-area-dynamic-data/exposure", body=body                    )
 
+                        statsPath=drought_extent.replace(".tif", f"NoEvnt_{lead_time_event}-month_{country}_{adm_level}.json" )
+                        statsPath=statsPath.replace("rainfall_forecast", f"{indicator}")
+
+                        with open(statsPath, 'w') as fp:
+                            json.dump(body, fp)
+
         # send notification
         body = {
             "countryCodeISO3": country,
