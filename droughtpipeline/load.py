@@ -481,7 +481,7 @@ class Load:
                         }
                         self.ibf_api_post_request(  "admin-area-dynamic-data/exposure", body=body                    )
 
-                        statsPath=drought_extent.replace(".tif", f"NoEvnt_{lead_time_event}-month_{country}_{adm_level}.json" )
+                        statsPath=drought_extent.replace(".tif", f"_null_{lead_time}-month_{country}_{adm_level}.json" )
                         statsPath=statsPath.replace("rainfall_forecast", f"{indicator}")
 
                         with open(statsPath, 'w') as fp:
