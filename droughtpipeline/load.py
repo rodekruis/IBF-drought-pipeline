@@ -349,7 +349,7 @@ class Load:
 
             events = dict(sorted(events.items()))     
 
-            logging.info(f"event {events} " )
+            
 
                   
 
