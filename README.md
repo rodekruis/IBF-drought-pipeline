@@ -18,6 +18,44 @@ This will build the Docker image and run the drought pipeline with the specified
 
 You can modify the `command` section in the `docker-compose.yml` file to change the options as needed for your testing.
 
+## Triggering Model Run for Drought Scenarios
+
+This s allows you to test **"Warning"** and **"No Warning"** scenarios for a specific month by triggering a pipeline run via an API. The API is integrated with the [Logic App `drought-pipeline-sen`](https://portal.azure.com/#@rodekruis.onmicrosoft.com/resource/subscriptions/57b0d17a-5429-4dbb-8366-35c928e3ed94/resourceGroups/IBF-system/providers/Microsoft.Logic/workflows/drought-pipeline-sen/logicApp).
+
+### How to Trigger a Model Run
+
+You can trigger a model run by making a request to the API and passing the following parameters:
+
+- `month` – A three-letter format of the month (e.g., `"Jan"`, `"Jul"`).
+- `year` – The four-digit year (e.g., `2024`).
+- `scenario` *(optional)* – Can be one of the following:
+  - `"Warning"` – Forces the model to trigger at a low threshold.
+  - `"NoWarning"` – Forces the model to trigger only at a very high threshold.
+  - `"Forecast"` (default) – Uses the standard threshold set in the Early Action Protocol (EAP).
+
+If you **omit** the `scenario` parameter, the default `"Forecast"` mode is used.
+you can run a scenario upto the current month 
+
+### Scenario Logic
+
+The `trigger_on_minimum_probability` is set based on the selected scenario:
+
+```python
+scenario = os.getenv("SCENARIO", "Forecast")
+
+if scenario == "Warning":
+    trigger_on_minimum_probability = 0.1
+elif scenario == "NoWarning":
+    trigger_on_minimum_probability = 0.9
+elif scenario == "Forecast":
+    trigger_on_minimum_probability = 0.4
+```
+
+ 
+ 
+
+
+
 ## Overview
 The IBF Drought Pipeline updates the IBF Drought Portal based on predefined trigger thresholds derived from various drought indicators. The current implementation uses the Seasonal Rainfall Forecast from ECMWF (European Centre for Medium-Range Weather Forecasts). Two specific indicators serve as drought trigger thresholds:
 1. 1-month Seasonal Rainfall Forecast (configured as `seasonal_rainfall_forecast`).
