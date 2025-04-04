@@ -286,13 +286,10 @@ class Extract:
 
         if debug:
             scenario = os.getenv("SCENARIO", "Forecast")
-            if scenario == "Trigger":
+            if scenario == "Warning":
                 trigger_on_minimum_probability = 0.1
-            elif scenario == "NoTrigger":
+            elif scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.9
-            elif scenario == "Warning":
-                trigger_on_minimum_probability = 0.3
-       
 
         
         trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']     

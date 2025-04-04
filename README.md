@@ -31,7 +31,7 @@ You can trigger a model run by making a request to the API and passing the follo
 - `scenario` *(optional)* – Can be one of the following:
   - `"Warning"` – Forces the model to trigger at a low threshold.
   - `"NoWarning"` – Forces the model to trigger only at a very high threshold.
-  - `"Forecast"` (default) – Uses the standard threshold set in the Early Action Protocol (EAP).
+  - the default is the standard threshold set in the Early Action Protocol (EAP).
 
 If you **omit** the `scenario` parameter, the default `"Forecast"` mode is used.
 you can run a scenario upto the current month 
