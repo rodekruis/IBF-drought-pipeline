@@ -34,7 +34,7 @@ You can trigger a model run by making a request to the API and passing the follo
   - the default is the standard threshold set in the Early Action Protocol (EAP).
 
 If you **omit** the `scenario` parameter, the default `"Forecast"` mode is used.
-you can run a scenario upto the current month 
+you can run a scenario upto the current month, these forecasts are initialized on the 1st of each month and are released at 12:00 UTC on the 5th day of the month . [ECMWF data Dissemination schedule](https://confluence.ecmwf.int/display/DAC/Dissemination+schedule)
 
 ### Scenario Logic
 
