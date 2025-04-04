@@ -182,8 +182,7 @@ class Forecast:
                 trigger_on_minimum_probability = 0.1
             elif scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.9
-            elif scenario == "Forecast":
-                trigger_on_minimum_probability = 0.4
+
 
 
 
