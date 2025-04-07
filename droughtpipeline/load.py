@@ -705,7 +705,8 @@ class Load:
                 raise FileNotFoundError(
                     f"File {blob_path} not found in Azure Blob Storage"
                 )
-                        
+
+
     def download_ecmwf_forecast(self,country, DATADIR, currentYear, currentMonth):
         """Download ECMWF seasonal hindcast data for historical period
         Args:
@@ -715,23 +716,23 @@ class Load:
         """   
         gdf=self.get_adm_boundaries(country,1)
 
-        min_x, min_y, max_x, max_y = gdf.total_bounds        
+        min_x, min_y, max_x, max_y = gdf.total_bounds
         
         KEY = os.getenv('CDSAPI_KEY')
-        URL = 'https://cds.climate.copernicus.eu/api'      
-           
+        URL = 'https://cds.climate.copernicus.eu/api'
 
-        c = cdsapi.Client(url=URL, key=KEY,wait_until_complete=False,delete=False)
+        c = cdsapi.Client(url=URL, 
+                          key=KEY, 
+                          wait_until_complete=False, 
+                          delete=False)
 
         # Forecast data request
-        r=c.retrieve(
-            'seasonal-monthly-single-levels',
-            {
+        dataset = 'seasonal-monthly-single-levels'
+        request = {
             "originating_centre": "ecmwf",
             "system": "51",
             "variable": ["total_precipitation"],
-            "product_type": ["monthly_mean"
-            ],
+            "product_type": ["monthly_mean"],
             "year": [currentYear],
             "month": [currentMonth],
             "leadtime_month": [
@@ -744,39 +745,14 @@ class Load:
             ],
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
-            }            
-            )         
-                     
-        sleep = 30
-        
-        while True:
-            r.update()
-            reply = r.reply
-            r.info("Request ID: %s, state: %s" % (reply["request_id"], reply["state"]))
- 
-            if reply["state"] == "completed":
-                break
-            elif reply["state"] in ("queued", "running"):
-                r.info("Request ID: %s, sleep: %s", reply["request_id"], sleep)
-                time.sleep(sleep)
-            elif reply["state"] in ("failed",):
-                r.error("Message: %s", reply["error"].get("message"))
-                r.error("Reason:  %s", reply["error"].get("reason"))
-                for n in (
-                    reply.get("error", {}).get("context", {}).get("traceback", "").split("\n")
-                ):
-                    if n.strip() == "":
-                        break
-                    r.error("  %s", n)
-                raise Exception(
-                    "%s. %s." % (reply["error"].get("message"), reply["error"].get("reason"))
-                )
-            
-        r.download(f'{DATADIR}/ecmwf_seas5_forecast_monthly_tp.grib')
+        }
+        target = f'{DATADIR}/ecmwf_seas5_forecast_monthly_tp.grib'
+        c.retrieve(dataset, request, target)
 
-        r=c.retrieve(
-            'seasonal-monthly-single-levels',
-            {
+        sleep = 30
+        time.sleep(sleep)
+        
+        request = {
             "originating_centre": "ecmwf",
             "system": "51",
             "variable": ["total_precipitation"],
@@ -804,32 +780,6 @@ class Load:
             ],
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
-            }            
-            )   
-       
-        sleep = 30
-        
-        while True:
-            r.update()
-            reply = r.reply
-            r.info("Request ID: %s, state: %s" % (reply["request_id"], reply["state"]))
- 
-            if reply["state"] == "completed":
-                break
-            elif reply["state"] in ("queued", "running"):
-                r.info("Request ID: %s, sleep: %s", reply["request_id"], sleep)
-                time.sleep(sleep)
-            elif reply["state"] in ("failed",):
-                r.error("Message: %s", reply["error"].get("message"))
-                r.error("Reason:  %s", reply["error"].get("reason"))
-                for n in (
-                    reply.get("error", {}).get("context", {}).get("traceback", "").split("\n")
-                ):
-                    if n.strip() == "":
-                        break
-                    r.error("  %s", n)
-                raise Exception(
-                    "%s. %s." % (reply["error"].get("message"), reply["error"].get("reason"))
-                )
-            
-        r.download(f'{DATADIR}/ecmwf_seas5_hindcast_monthly_tp.grib')
+        }
+        target = f'{DATADIR}/ecmwf_seas5_hindcast_monthly_tp.grib'
+        c.retrieve(dataset, request, target)

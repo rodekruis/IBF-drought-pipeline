@@ -97,6 +97,8 @@ class Extract:
         self.load = Load()
         if not os.path.exists(self.inputPathGrid):
             os.makedirs(self.inputPathGrid)
+        if not os.path.exists(self.outputPathGrid):
+            os.makedirs(self.outputPathGrid)
         if settings is not None:
             self.set_settings(settings)
             self.load.set_settings(settings)
