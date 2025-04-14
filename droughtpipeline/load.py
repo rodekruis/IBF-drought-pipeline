@@ -523,9 +523,9 @@ class Load:
                 )
         for data_unit in dataset.data_units:
             record = vars(data_unit)
-            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S") # TODO: to sync with upload vars currentMonth, currentYear
+            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S") # TODO: to sync with upload vars current_month, current_year
             record["country"] = dataset.country
-            record["id"] = get_data_unit_id(data_unit, dataset) # TODO: to sync with upload vars currentMonth, currentYear
+            record["id"] = get_data_unit_id(data_unit, dataset) # TODO: to sync with upload vars current_month, current_year
             cosmos_container_client.upsert_item(body=record)
 
 
@@ -660,8 +660,8 @@ class Load:
         
         # Create a new folder in Blob Storage based on today's date
         blob_storage_path= self.settings.get_setting("databases")['blob_storage_path'] 
-        # today_date = datetime.now().strftime('%Y-%m-%d')
-        blob_folder = os.path.join(blob_storage_path, country)#today_date) if blob_storage_path else today_date
+        month = datetime.now().strftime('%Y-%m')
+        blob_folder = os.path.join(blob_storage_path, country, month)# if blob_storage_path else today_date
         
         for file_name in os.listdir(local_path):
             if file_name.endswith(".json") or file_name.endswith(".tif"):#            if file_name.endswith(".json"):
@@ -684,12 +684,13 @@ class Load:
                 )
 
 
-    def download_ecmwf_forecast(self,country, DATADIR, currentYear, currentMonth): #TODO: edit vars name to make it consistent
+    def download_ecmwf_forecast(self, country, data_dir, current_year, current_month): #TODO: edit vars name to make it consistent
         """Download ECMWF seasonal hindcast data for historical period
         Args:
-            DATADIR (str): Directory to save the data
-            month_ (int): Month of the forecast
-
+            country (str): Country name
+            data_dir (str): Directory to save data
+            current_year (int): Current year
+            current_month (int): Current month
         """   
         gdf=self.get_adm_boundaries(country,1)
 
@@ -710,8 +711,8 @@ class Load:
             "system": "51",
             "variable": ["total_precipitation"],
             "product_type": ["monthly_mean"],
-            "year": [currentYear],
-            "month": [currentMonth],
+            "year": [current_year],
+            "month": [current_month],
             "leadtime_month": [
                 "1",
                 "2",
@@ -723,7 +724,7 @@ class Load:
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
         }
-        target = f'{DATADIR}/ecmwf_seas5_forecast_monthly_tp.grib'
+        target = f'{data_dir}/ecmwf_seas5_forecast_monthly_tp.grib'
         c.retrieve(dataset, request, target)
 
         sleep = 30
@@ -758,7 +759,7 @@ class Load:
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
         }
-        target = f'{DATADIR}/ecmwf_seas5_hindcast_monthly_tp.grib'
+        target = f'{data_dir}/ecmwf_seas5_hindcast_monthly_tp.grib'
         c.retrieve(dataset, request, target)
 
 
