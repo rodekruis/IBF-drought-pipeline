@@ -1,4 +1,4 @@
-name: Update pipeline production
+name: Update pipeline prod
 
 on:
   push:
