@@ -354,19 +354,26 @@ class Load:
                 country,climate_region_code)  
 
             for lead_time_event , event_type in events.items():     
-                # here we are assuming we will not expect two events in a climate region  with the same lead time            
+                # NOTE: here we are assuming we will not expect two events in a climate region  with the same lead time            
                 if (lead_time_event in list(expected_events.keys()) and 
-                    lead_time_event in range(1, 4)): # no upload for lead time greater than 3 months    
+                    lead_time_event in range(0, 4)): # no upload for lead time greater than 3 months    
                     season_name = expected_events[lead_time_event]
                     if climate_region_name.split('_')[0] in ['National','national']:
                         event_name = season_name 
                     else:
                         event_name = f"{climate_region_name} {season_name}"
+                    # NOTE: exposure data is updated with new data during pre-season and not updated during the season
+                    forecast_data_to_send = self.__fetch_or_fallback(
+                        lead_time_event, 
+                        country,
+                        event_name,
+                        forecast_data, 
+                    )
                     for indicator in indicators:
                         for adm_level in admin_levels:
                             exposure_pcodes = []
                             for pcode in pcodes[f'{adm_level}']:
-                                forecast_admin = forecast_data.get_data_unit(
+                                forecast_admin = forecast_data_to_send.get_data_unit(
                                     pcode, lead_time_event
                                 )
                                 amount = None
@@ -375,10 +382,10 @@ class Load:
                                 elif indicator == "population_affected_percentage":
                                     amount = forecast_admin.pop_affected_perc
                                 elif indicator == "forecast_severity":
-                                    amount = forecast_admin.triggered # ( 1 if event_type == "trigger" else 0 )
+                                    amount = forecast_admin.triggered 
                                 elif indicator == "forecast_trigger":
                                     amount = forecast_trigger_status(
-                                        triggered=(forecast_admin.triggered >= 0),# True if event_type == "trigger" else False   ),
+                                        triggered=(forecast_admin.triggered >= 0),
                                         trigger_class=pipeline_will_trigger_portal,
                                     )
                                 exposure_pcodes.append({
@@ -405,67 +412,6 @@ class Load:
 
                             self.ibf_api_post_request("admin-area-dynamic-data/exposure", body=body )
                     processed_pcodes = list(set(processed_pcodes))
-
-                elif lead_time_event == 0:
-                    season_name = expected_events[lead_time_event]
-                    if climate_region_name.split('_')[0] in ['National','national']:
-                        event_name = season_name 
-                    else:
-                        event_name = f"{climate_region_name} {season_name}"
-                    datestart, dateend = self.__look_up_time(
-                        country, 
-                        event_name, 
-                        lead_time_event='1-month',)
-                    forecast_data = self.get_pipeline_data(
-                                    'seasonal-rainfall-forecast', 
-                                    country=country,
-                                    start_date=datestart,
-                                    end_date=dateend,
-                    )
-                    
-                    for indicator in indicators:
-                        for adm_level in forecast_data.adm_levels:
-                            exposure_pcodes = []
-                            for pcode in pcodes[f'{adm_level}']:
-                                amount = None
-                                forecast_admin = forecast_data.get_data_unit(
-                                    pcode, lead_time_event
-                                )
-                                if indicator == "population_affected":
-                                    amount = forecast_admin.pop_affected
-                                elif indicator == "population_affected_percentage":
-                                    amount = forecast_admin.pop_affected_perc
-                                elif indicator == "forecast_severity":
-                                    amount = forecast_admin.triggered # ( 1 if event_type == "trigger" else 0 )
-                                elif indicator == "forecast_trigger":
-                                    amount = forecast_trigger_status(
-                                        triggered=(forecast_admin.triggered >= 0),# True if event_type == "trigger" else False   ),
-                                        trigger_class=pipeline_will_trigger_portal,
-                                    )
-                                exposure_pcodes.append({
-                                    "placeCode": pcode, 
-                                    "amount": amount
-                                })
-                                processed_pcodes.append(pcode)
-
-                            body = {
-                                "countryCodeISO3": country,
-                                "leadTime": f"{lead_time_event}-month",
-                                "dynamicIndicator": indicator,
-                                "adminLevel": int(adm_level),
-                                "exposurePlaceCodes": exposure_pcodes,
-                                "disasterType": disasterType,
-                                "eventName": event_name,
-                                "date": upload_time,
-                            }
-                            statsPath=drought_extent.replace(".tif", f"_{event_name}_{lead_time_event}-month_{country}_{adm_level}.json" )
-                            statsPath=statsPath.replace("rainfall_forecast", f"{indicator}")
-
-                            with open(statsPath, 'w') as fp:
-                                json.dump(body, fp)
-                            
-                            self.ibf_api_post_request("admin-area-dynamic-data/exposure", body=body )
-                    processed_pcodes = list(set(processed_pcodes))
                     
         # END OF EVENT LOOP
         ###############################################################################################################
@@ -475,10 +421,10 @@ class Load:
         self.rasters_sent = []
 
         for lead_time in range(0,4):
+        # NOTE: new drought extent raster is updated during the season
             drought_extent_new = drought_extent.replace(".tif", f"_{lead_time}-month_{country}.tif" )            
 
-            #to accompdate file name requirement in IBF portal 
-
+            # to accompdate file name requirement in IBF portal 
             rainf_extent=drought_extent_new.replace("rainfall_forecast", "rlower_tercile_probability")
             rain_rp = drought_extent_new.replace("rainfall_forecast", "rain_rp")
             shutil.copy(rainf_extent,drought_extent_new.replace("rainfall_forecast", "rain_rp")) 
@@ -577,9 +523,9 @@ class Load:
                 )
         for data_unit in dataset.data_units:
             record = vars(data_unit)
-            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S")
+            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S") # TODO: to sync with upload vars currentMonth, currentYear
             record["country"] = dataset.country
-            record["id"] = get_data_unit_id(data_unit, dataset)
+            record["id"] = get_data_unit_id(data_unit, dataset) # TODO: to sync with upload vars currentMonth, currentYear
             cosmos_container_client.upsert_item(body=record)
 
 
@@ -738,7 +684,7 @@ class Load:
                 )
 
 
-    def download_ecmwf_forecast(self,country, DATADIR, currentYear, currentMonth):
+    def download_ecmwf_forecast(self,country, DATADIR, currentYear, currentMonth): #TODO: edit vars name to make it consistent
         """Download ECMWF seasonal hindcast data for historical period
         Args:
             DATADIR (str): Directory to save the data
@@ -765,7 +711,7 @@ class Load:
             "variable": ["total_precipitation"],
             "product_type": ["monthly_mean"],
             "year": [currentYear],
-            "month": ["03"],
+            "month": [currentMonth],
             "leadtime_month": [
                 "1",
                 "2",
@@ -837,3 +783,25 @@ class Load:
                         next_month = datetime(year, month_num + 1, 1)
                     dateend = next_month - timedelta(days=1)
         return datestart.date(), dateend.date()
+    
+
+    def __fetch_or_fallback(self, lead_time, country, event_name, forecast_data):
+        '''
+        Fetch data from the database or return fallback data if not available.
+        '''
+        if lead_time == 0:
+            try:
+                datestart, dateend = self.__look_up_time(
+                    country, 
+                    event_name, 
+                    lead_time_event='1-month',)
+                forecast_data = self.get_pipeline_data(
+                    'seasonal-rainfall-forecast', 
+                    country=country,
+                    start_date=datestart,
+                    end_date=dateend,
+                )
+            except KeyError as e:
+                logging.warning(f"Fallback to current forecast data.")
+                pass
+        return forecast_data
