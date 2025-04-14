@@ -6,7 +6,7 @@ import time
 import os
 import json
 import cdsapi  
-
+import calendar
 from droughtpipeline.secrets import Secrets
 from droughtpipeline.settings import Settings
 from droughtpipeline.data import (
@@ -280,17 +280,22 @@ class Load:
         upload_time: str = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         debug: bool = False,
     ):
-        """Send flood forecast data to IBF API"""
+        """Send drought forecast data to IBF API"""
 
         country = forecast_data.country
         #trigger_on_lead_time = self.settings.get_country_setting( country, "trigger-on-lead-time"    )
-        admin_levels=self.settings.get_country_setting(
+        admin_levels = self.settings.get_country_setting(
             country, "admin-levels"
             )
-         
-        disasterType="drought"
-        pipeline_will_trigger_portal = self.settings.get_country_setting(country, "pipeline-will-trigger-portal")          
-        
+        disasterType = "drought"
+        indicators = [
+            "population_affected",
+            #"population_affected_percentage",
+            "forecast_trigger",
+            "forecast_severity",
+        ]
+        pipeline_will_trigger_portal = self.settings.get_country_setting(
+            country, "pipeline-will-trigger-portal") #TODO: make varname more descriptive
 
         processed_pcodes, triggered_lead_times =  [], []
         #climateregions=forecast_data.get_climate_region_codes()
@@ -299,28 +304,23 @@ class Load:
         #lead_times_list = []
         #climate_region_codes=[] 
 
-        if debug:
+        if debug: # TODO: to edit all upper case variables to lower case
             DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
             DEFAULT_CURRENT_MONTH_NUMERIC = datetime.strptime(DEFAULT_CURRENT_MONTH, '%b').month          
-
             DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
-
             upload_time_ = datetime(int(DEFAULT_CURRENT_YEAR), int(DEFAULT_CURRENT_MONTH_NUMERIC), 1, 0, 0, 0)
             upload_time = upload_time_.strftime("%Y-%m-%dT%H:%M:%SZ") 
-            logging.info(f"upload_time {upload_time} {upload_time_} {DEFAULT_CURRENT_MONTH_NUMERIC} {DEFAULT_CURRENT_YEAR}" )
+            logging.info(f"debug: upload_time {upload_time} {upload_time_} {DEFAULT_CURRENT_MONTH_NUMERIC} {DEFAULT_CURRENT_YEAR}" )
         else:
             DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
 
         #DEFAULT_CURRENT_MONTH  =  date.today().strftime('%b') #### This should be set in config file
-  
-
- 
-
         for climate_region_code in forecast_climateregion.get_climate_region_codes():
-
-            possible_events= self.settings.get_leadtime_for_climate_region_code(country, climate_region_code, DEFAULT_CURRENT_MONTH)
-
-            lead_times_list=[]          
+            pcodes = threshold_climateregion.get_data_unit(
+                climate_region_code=climate_region_code).pcodes
+            possible_events = self.settings.get_leadtime_for_climate_region_code(
+                country, climate_region_code, DEFAULT_CURRENT_MONTH)
+            lead_times_list=[]
             expected_events = {}
 
             for entry in possible_events:
@@ -329,7 +329,6 @@ class Load:
                     lead_time = int(value.split('-')[0])
                     expected_events[lead_time] = season_name
                     lead_times_list.append(lead_time)
-
 
             events = {}
             
@@ -351,36 +350,30 @@ class Load:
 
             
 
-                  
-
-            climate_region_name = self.settings.get_climate_region_name_by_code(country,climate_region_code)  
-
+            climate_region_name = self.settings.get_climate_region_name_by_code(
+                country,climate_region_code)  
 
             for lead_time_event , event_type in events.items():     
-                # here we are assuming we will not expect two events in a climate region  with the same lead time            
-                if lead_time_event in list(expected_events.keys()) and lead_time_event < 4 : # no upload for lead time greater than 3 months    
+                # NOTE: here we are assuming we will not expect two events in a climate region  with the same lead time            
+                if (lead_time_event in list(expected_events.keys()) and 
+                    lead_time_event in range(0, 4)): # no upload for lead time greater than 3 months    
                     season_name = expected_events[lead_time_event]
-
                     if climate_region_name.split('_')[0] in ['National','national']:
                         event_name = season_name 
                     else:
                         event_name = f"{climate_region_name} {season_name}"
-
-
-                    pcodes=threshold_climateregion.get_data_unit(climate_region_code=climate_region_code).pcodes
-                    indicators = [
-                        "population_affected",
-                        #"population_affected_percentage",
-                        #"alert_threshold",
-                        "forecast_trigger",
-                        "forecast_severity",
-                    ]   
-
+                    # NOTE: exposure data is updated with new data during pre-season and not updated during the season
+                    forecast_data_to_send = self.__fetch_or_fallback(
+                        lead_time_event, 
+                        country,
+                        event_name,
+                        forecast_data, 
+                    )
                     for indicator in indicators:
                         for adm_level in admin_levels:
                             exposure_pcodes = []
                             for pcode in pcodes[f'{adm_level}']:
-                                forecast_admin = forecast_data.get_data_unit(
+                                forecast_admin = forecast_data_to_send.get_data_unit(
                                     pcode, lead_time_event
                                 )
                                 amount = None
@@ -389,13 +382,16 @@ class Load:
                                 elif indicator == "population_affected_percentage":
                                     amount = forecast_admin.pop_affected_perc
                                 elif indicator == "forecast_severity":
-                                    amount =forecast_admin.triggered # ( 1 if event_type == "trigger" else 0 )
+                                    amount = forecast_admin.triggered 
                                 elif indicator == "forecast_trigger":
                                     amount = forecast_trigger_status(
-                                        triggered=(forecast_admin.triggered >= 0),# True if event_type == "trigger" else False   ),
+                                        triggered=(forecast_admin.triggered >= 0),
                                         trigger_class=pipeline_will_trigger_portal,
                                     )
-                                exposure_pcodes.append({"placeCode": pcode, "amount": amount})
+                                exposure_pcodes.append({
+                                    "placeCode": pcode, 
+                                    "amount": amount
+                                })
                                 processed_pcodes.append(pcode)
 
                             body = {
@@ -416,20 +412,19 @@ class Load:
 
                             self.ibf_api_post_request("admin-area-dynamic-data/exposure", body=body )
                     processed_pcodes = list(set(processed_pcodes))
-
-
+                    
         # END OF EVENT LOOP
         ###############################################################################################################
 
-        # flood extent raster: admin-area-dynamic-data/raster/floods
+        # drought extent raster: admin-area-dynamic-data/raster/droughts
 
         self.rasters_sent = []
 
         for lead_time in range(0,4):
+        # NOTE: new drought extent raster is updated during the season
             drought_extent_new = drought_extent.replace(".tif", f"_{lead_time}-month_{country}.tif" )            
 
-            #to accompdate file name requirement in IBF portal 
-
+            # to accompdate file name requirement in IBF portal 
             rainf_extent=drought_extent_new.replace("rainfall_forecast", "rlower_tercile_probability")
             rain_rp = drought_extent_new.replace("rainfall_forecast", "rain_rp")
             shutil.copy(rainf_extent,drought_extent_new.replace("rainfall_forecast", "rain_rp")) 
@@ -438,25 +433,16 @@ class Load:
             files = {"file": open(rain_rp, "rb")}
             self.ibf_api_post_request( "admin-area-dynamic-data/raster/drought", files=files )
 
-
         # send empty exposure data
-        logging.info(f"processed_pcodes {processed_pcodes} " )
-        
+        logging.info(f"send no trigger data for areas not in {processed_pcodes} " )
         if len(processed_pcodes) == 0:
-            indicators = [
-                "population_affected",
-                #"population_affected_percentage",
-                #"alert_threshold",
-                "forecast_trigger",
-                "forecast_severity",
-
-            ]
             for lead_time in set(lead_times_list):
                 for indicator in indicators:
                     for adm_level in admin_levels:
                         exposure_pcodes = []
                         for pcode in forecast_data.get_pcodes(adm_level=adm_level):
                             if pcode not in processed_pcodes:
+                                # print('pcode: ', pcode)
                                 amount = None
                                 if indicator == "population_affected":
                                     amount = 0
@@ -479,7 +465,7 @@ class Load:
                             "eventName": None,  # this is a specific check IBF uses to establish no-trigger
                             "date": upload_time,
                         }
-                        self.ibf_api_post_request(  "admin-area-dynamic-data/exposure", body=body                    )
+                        self.ibf_api_post_request("admin-area-dynamic-data/exposure", body=body)
 
                         statsPath=drought_extent.replace(".tif", f"_null_{lead_time}-month_{country}_{adm_level}.json" )
                         statsPath=statsPath.replace("rainfall_forecast", f"{indicator}")
@@ -493,23 +479,20 @@ class Load:
             "disasterType": disasterType,
             "date": upload_time,
         }
-         
         self.ibf_api_post_request("events/process", body=body)
-
-                
-                
    
 
     def save_pipeline_data(
         self, data_type: str, dataset: AdminDataSet, replace_country: bool = False
     ):
         """Upload pipeline datasets to Cosmos DB"""
+        # To Cosmos DB
         if data_type not in COSMOS_DATA_TYPES:
             raise ValueError(
                 f"Data type {data_type} is not supported."
                 f"Supported storages are {', '.join(COSMOS_DATA_TYPES)}"
             )
-        # check data types
+        ## check data types
         if data_type == "seasonal-rainfall-forecast":
             for data_unit in dataset.data_units:
                 if not isinstance(data_unit, ForecastDataUnit):
@@ -540,10 +523,11 @@ class Load:
                 )
         for data_unit in dataset.data_units:
             record = vars(data_unit)
-            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S")
+            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S") # TODO: to sync with upload vars currentMonth, currentYear
             record["country"] = dataset.country
-            record["id"] = get_data_unit_id(data_unit, dataset)
+            record["id"] = get_data_unit_id(data_unit, dataset) # TODO: to sync with upload vars currentMonth, currentYear
             cosmos_container_client.upsert_item(body=record)
+
 
     def get_pipeline_data(
         self,
@@ -663,27 +647,21 @@ class Load:
     def save_to_blob(self, local_path: str, file_dir_blob: str):
         """Save file to Azure Blob Storage"""
         # upload to Azure Blob Storage
-
-
         blob_client = self.__get_blob_service_client(file_dir_blob)
         with open(local_path, "rb") as upload_file:
             blob_client.upload_blob(upload_file, overwrite=True)
 
     
-    def upload_json_files(self, local_path: str): 
+    def upload_json_files(self, country, local_path: str): 
         """Find all JSON files in a directory and upload them to Azure Blob Storage"""
         if not os.path.exists(local_path):
             logging.info(f"Directory not found: {local_path}")
-
             return
+        
         # Create a new folder in Blob Storage based on today's date
-
         blob_storage_path= self.settings.get_setting("databases")['blob_storage_path'] 
-
-        today_date = datetime.now().strftime('%Y-%m-%d')      
-      
-
-        blob_folder = os.path.join(blob_storage_path, today_date) if blob_storage_path else today_date
+        # today_date = datetime.now().strftime('%Y-%m-%d')
+        blob_folder = os.path.join(blob_storage_path, country)#today_date) if blob_storage_path else today_date
         
         for file_name in os.listdir(local_path):
             if file_name.endswith(".json") or file_name.endswith(".tif"):#            if file_name.endswith(".json"):
@@ -691,7 +669,6 @@ class Load:
                 blob_path = os.path.join(blob_folder, file_name) #if blob_folder else file_name
                 logging.info(f"Uploading {local_path_} to {blob_path} in Blob Storage...")                 
                 self.save_to_blob(local_path_, blob_path)
-            
 
 
     def get_from_blob(self, local_path: str, blob_path: str):
@@ -705,8 +682,9 @@ class Load:
                 raise FileNotFoundError(
                     f"File {blob_path} not found in Azure Blob Storage"
                 )
-                        
-    def download_ecmwf_forecast(self,country, DATADIR, currentYear, currentMonth):
+
+
+    def download_ecmwf_forecast(self,country, DATADIR, currentYear, currentMonth): #TODO: edit vars name to make it consistent
         """Download ECMWF seasonal hindcast data for historical period
         Args:
             DATADIR (str): Directory to save the data
@@ -715,23 +693,23 @@ class Load:
         """   
         gdf=self.get_adm_boundaries(country,1)
 
-        min_x, min_y, max_x, max_y = gdf.total_bounds        
+        min_x, min_y, max_x, max_y = gdf.total_bounds
         
         KEY = os.getenv('CDSAPI_KEY')
-        URL = 'https://cds.climate.copernicus.eu/api'      
-           
+        URL = 'https://cds.climate.copernicus.eu/api'
 
-        c = cdsapi.Client(url=URL, key=KEY,wait_until_complete=False,delete=False)
+        c = cdsapi.Client(url=URL, 
+                          key=KEY, 
+                          wait_until_complete=False, 
+                          delete=False)
 
         # Forecast data request
-        r=c.retrieve(
-            'seasonal-monthly-single-levels',
-            {
+        dataset = 'seasonal-monthly-single-levels'
+        request = {
             "originating_centre": "ecmwf",
             "system": "51",
             "variable": ["total_precipitation"],
-            "product_type": ["monthly_mean"
-            ],
+            "product_type": ["monthly_mean"],
             "year": [currentYear],
             "month": [currentMonth],
             "leadtime_month": [
@@ -744,39 +722,14 @@ class Load:
             ],
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
-            }            
-            )         
-                     
-        sleep = 30
-        
-        while True:
-            r.update()
-            reply = r.reply
-            r.info("Request ID: %s, state: %s" % (reply["request_id"], reply["state"]))
- 
-            if reply["state"] == "completed":
-                break
-            elif reply["state"] in ("queued", "running"):
-                r.info("Request ID: %s, sleep: %s", reply["request_id"], sleep)
-                time.sleep(sleep)
-            elif reply["state"] in ("failed",):
-                r.error("Message: %s", reply["error"].get("message"))
-                r.error("Reason:  %s", reply["error"].get("reason"))
-                for n in (
-                    reply.get("error", {}).get("context", {}).get("traceback", "").split("\n")
-                ):
-                    if n.strip() == "":
-                        break
-                    r.error("  %s", n)
-                raise Exception(
-                    "%s. %s." % (reply["error"].get("message"), reply["error"].get("reason"))
-                )
-            
-        r.download(f'{DATADIR}/ecmwf_seas5_forecast_monthly_tp.grib')
+        }
+        target = f'{DATADIR}/ecmwf_seas5_forecast_monthly_tp.grib'
+        c.retrieve(dataset, request, target)
 
-        r=c.retrieve(
-            'seasonal-monthly-single-levels',
-            {
+        sleep = 30
+        time.sleep(sleep)
+        
+        request = {
             "originating_centre": "ecmwf",
             "system": "51",
             "variable": ["total_precipitation"],
@@ -793,7 +746,7 @@ class Load:
                 "2015", "2016","2017", 
                 "2018", "2019","2020"
             ],
-            "month": [currentMonth],
+            "month": ["03"],
             "leadtime_month": [
                 "1",
                 "2",
@@ -804,32 +757,51 @@ class Load:
             ],
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
-            }            
-            )   
-       
-        sleep = 30
-        
-        while True:
-            r.update()
-            reply = r.reply
-            r.info("Request ID: %s, state: %s" % (reply["request_id"], reply["state"]))
- 
-            if reply["state"] == "completed":
-                break
-            elif reply["state"] in ("queued", "running"):
-                r.info("Request ID: %s, sleep: %s", reply["request_id"], sleep)
-                time.sleep(sleep)
-            elif reply["state"] in ("failed",):
-                r.error("Message: %s", reply["error"].get("message"))
-                r.error("Reason:  %s", reply["error"].get("reason"))
-                for n in (
-                    reply.get("error", {}).get("context", {}).get("traceback", "").split("\n")
-                ):
-                    if n.strip() == "":
-                        break
-                    r.error("  %s", n)
-                raise Exception(
-                    "%s. %s." % (reply["error"].get("message"), reply["error"].get("reason"))
+        }
+        target = f'{DATADIR}/ecmwf_seas5_hindcast_monthly_tp.grib'
+        c.retrieve(dataset, request, target)
+
+
+    def __look_up_time(self, country, event_name, lead_time_event='1-month'):
+        """Look up the month of the most recent 1-month forecast
+        and return the month's start and end date.
+        Args:
+            country (str): Country name
+            event_name (str): Event name
+            lead_time_event (int): Lead time event"""
+        year = datetime.today().year
+        month_dict = self.settings.get_country_setting(country, "Climate_Region")[0]["leadtime"]
+        # Iterate in reverse to get the most recent one
+        for month in reversed(list(month_dict.keys())):
+            for entry in month_dict[month]:
+                if event_name in entry and entry[event_name] == lead_time_event:
+                    month_num = datetime.strptime(month, "%b").month
+                    datestart = datetime(year, month_num, 1)
+                    if month_num == 12:
+                        next_month = datetime(year + 1, 1, 1)
+                    else:
+                        next_month = datetime(year, month_num + 1, 1)
+                    dateend = next_month - timedelta(days=1)
+        return datestart.date(), dateend.date()
+    
+
+    def __fetch_or_fallback(self, lead_time, country, event_name, forecast_data):
+        '''
+        Fetch data from the database or return fallback data if not available.
+        '''
+        if lead_time == 0:
+            try:
+                datestart, dateend = self.__look_up_time(
+                    country, 
+                    event_name, 
+                    lead_time_event='1-month',)
+                forecast_data = self.get_pipeline_data(
+                    'seasonal-rainfall-forecast', 
+                    country=country,
+                    start_date=datestart,
+                    end_date=dateend,
                 )
-            
-        r.download(f'{DATADIR}/ecmwf_seas5_hindcast_monthly_tp.grib')
+            except KeyError as e:
+                logging.warning(f"Fallback to current forecast data.")
+                pass
+        return forecast_data
