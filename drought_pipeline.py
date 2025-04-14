@@ -14,27 +14,21 @@ import click
 @click.option("--send", help="send to IBF", default=False, is_flag=True)
 @click.option("--save", help="save to storage", default=False, is_flag=True)
 @click.option(
-    "--datetimestart",
+    "--datestart",
     help="datetime start ISO 8601",
-    default=date.today().strftime("%Y-%m-%dT%H:%M:%S"),
-)
-
-@click.option(
-    "--datetimeend",
-    help="datetime end ISO 8601",
-    default=(date.today() + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+    default=date.today().strftime("%Y-%m-%d"),
 )
 @click.option(
     "--debug",
     help="debug mode: process data from last month",
     default=False,
     is_flag=True,
-)
+) # TODO: define proper debug mode
+
 def run_drought_pipeline(
-    country, prepare, extract, forecast, send, save, datetimestart, datetimeend, debug
+    country, prepare, extract, forecast, send, save, datestart, debug
 ):
-    datetimestart = datetime.strptime(datetimestart, "%Y-%m-%dT%H:%M:%S")
-    datetimeend = datetime.strptime(datetimeend, "%Y-%m-%dT%H:%M:%S")
+    datestart = datetime.strptime(datestart, "%Y-%m-%d")
     pipe = Pipeline(
         country=country,
         settings=Settings("config/config.yaml"),
@@ -47,8 +41,7 @@ def run_drought_pipeline(
         send=send,
         save=save,
         debug=debug,
-        datetimestart=datetimestart,
-        datetimeend=datetimeend,
+        datestart=datestart
     )
 
 

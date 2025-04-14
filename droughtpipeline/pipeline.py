@@ -27,20 +27,12 @@ class Pipeline:
         self.country = country
         self.load = Load(settings=settings, secrets=secrets)
         self.data = PipelineDataSets(country=country, settings=settings)
-
-       
-
         self.data.threshold_climateregion = self.load.get_pipeline_data(data_type="climate-region", country=self.country )
-        
-     
-
-
         self.extract = Extract(
             settings=settings,
             secrets=secrets,
             data=self.data,
         )
-
         self.forecast = Forecast(
             settings=settings,
             secrets=secrets,
@@ -54,37 +46,18 @@ class Pipeline:
         forecast: bool = True,
         send: bool = True,
         save: bool = False,
-        debug: bool = False,  # fast extraction on yesterday's data
-        datetimestart: datetime = date.today(),
-        datetimeend: datetime = date.today() + timedelta(days=1),
+        debug: bool = False,  # debug mode with specific datestart of data
+        datestart: datetime = date.today(),
     ):
         """Run the drought data pipeline"""
 
         if prepare:
             logging.info("prepare ecmwf data")
-            self.extract.prepare_ecmwf_data(country=self.country, debug=debug)
+            self.extract.prepare_ecmwf_data(country=self.country, debug=debug, datestart=datestart)
 
         if extract:
             logging.info(f"extract ecmwf data")
             self.extract.extract_ecmwf_data(country=self.country, debug=debug)
-
-            '''
-            if save:
-                logging.info("save ecmwf data to storage")
-                self.load.save_pipeline_data(
-                    data_type="seasonal-rainfall-forecast", dataset=self.data.discharge_admin
-                )             
-                ''' 
-        else:
-            logging.info(f"get ecmwf data from storage") # for ecmwf seasonal forecast therer is no need to store the forecast data on 
-            ''' 
-            self.data.discharge_admin = self.load.get_pipeline_data(
-                data_type="discharge",
-                country=self.country,
-                start_date=datetimestart,
-                end_date=datetimeend,
-            )
-            ''' 
 
         if forecast:
             logging.info("forecast drought")
@@ -94,6 +67,10 @@ class Pipeline:
                 self.load.save_pipeline_data(
                     data_type="seasonal-rainfall-forecast", dataset=self.data.forecast_admin
                 )
+                logging.info("send data to 510 datalack")
+                self.load.upload_json_files( 
+                    country=self.country,
+                    local_path=self.forecast.output_data_path)
 
         if send:
             if not forecast:
@@ -101,13 +78,10 @@ class Pipeline:
                 self.data.forecast_admin = self.load.get_pipeline_data(
                     data_type="seasonal-rainfall-forecast",
                     country=self.country,
-                    start_date=datetimestart,
-                    end_date=datetimeend,
+                    start_date=datestart,
+                    end_date=datestart+timedelta(days=1),
                 )
             logging.info("send data to IBF API")
-
-
-
             self.load.send_to_ibf_api(
                 forecast_data=self.data.forecast_admin,
                 threshold_climateregion=self.data.threshold_climateregion,
@@ -115,6 +89,3 @@ class Pipeline:
                 drought_extent=self.forecast.drought_extent_raster,
                 debug=debug,
             )
-            logging.info("send data to 510 datalack")
-            self.load.upload_json_files( 
-                local_path=self.forecast.output_data_path)

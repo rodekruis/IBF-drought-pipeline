@@ -298,13 +298,8 @@ class Load:
             country, "pipeline-will-trigger-portal") #TODO: make varname more descriptive
 
         processed_pcodes, triggered_lead_times =  [], []
-        #climateregions=forecast_data.get_climate_region_codes()
 
-        #climate_regions= {}
-        #lead_times_list = []
-        #climate_region_codes=[] 
-
-        if debug: # TODO: to edit all upper case variables to lower case
+        if debug: # TODO: to check why debug mode is needed here, to edit all upper case variables to lower case
             DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
             DEFAULT_CURRENT_MONTH_NUMERIC = datetime.strptime(DEFAULT_CURRENT_MONTH, '%b').month          
             DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
@@ -314,7 +309,6 @@ class Load:
         else:
             DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
 
-        #DEFAULT_CURRENT_MONTH  =  date.today().strftime('%b') #### This should be set in config file
         for climate_region_code in forecast_climateregion.get_climate_region_codes():
             pcodes = threshold_climateregion.get_data_unit(
                 climate_region_code=climate_region_code).pcodes
@@ -346,10 +340,7 @@ class Load:
             if not events:
                 continue
 
-            events = dict(sorted(events.items()))     
-
-            
-
+            events = dict(sorted(events.items()))
             climate_region_name = self.settings.get_climate_region_name_by_code(
                 country,climate_region_code)  
 
@@ -417,24 +408,22 @@ class Load:
         ###############################################################################################################
 
         # drought extent raster: admin-area-dynamic-data/raster/droughts
-
         self.rasters_sent = []
 
         for lead_time in range(0,4):
-        # NOTE: new drought extent raster is updated during the season
+            # NOTE: new drought extent raster is updated during the season
             drought_extent_new = drought_extent.replace(".tif", f"_{lead_time}-month_{country}.tif" )            
 
             # to accompdate file name requirement in IBF portal 
             rainf_extent=drought_extent_new.replace("rainfall_forecast", "rlower_tercile_probability")
             rain_rp = drought_extent_new.replace("rainfall_forecast", "rain_rp")
             shutil.copy(rainf_extent,drought_extent_new.replace("rainfall_forecast", "rain_rp")) 
-           
             self.rasters_sent.append(rain_rp)
             files = {"file": open(rain_rp, "rb")}
             self.ibf_api_post_request( "admin-area-dynamic-data/raster/drought", files=files )
 
         # send empty exposure data
-        logging.info(f"send no trigger data for areas not in {processed_pcodes} " )
+        logging.info(f"send empty exposure data for areas {processed_pcodes}")
         if len(processed_pcodes) == 0:
             for lead_time in set(lead_times_list):
                 for indicator in indicators:
@@ -442,7 +431,6 @@ class Load:
                         exposure_pcodes = []
                         for pcode in forecast_data.get_pcodes(adm_level=adm_level):
                             if pcode not in processed_pcodes:
-                                # print('pcode: ', pcode)
                                 amount = None
                                 if indicator == "population_affected":
                                     amount = 0
@@ -480,7 +468,6 @@ class Load:
             "date": upload_time,
         }
         self.ibf_api_post_request("events/process", body=body)
-   
 
     def save_pipeline_data(
         self, data_type: str, dataset: AdminDataSet, replace_country: bool = False
@@ -684,7 +671,7 @@ class Load:
                 )
 
 
-    def download_ecmwf_forecast(self, country, data_dir, current_year, current_month): #TODO: edit vars name to make it consistent
+    def download_ecmwf_forecast(self, country, data_dir, current_year, current_month):
         """Download ECMWF seasonal hindcast data for historical period
         Args:
             country (str): Country name
@@ -771,7 +758,7 @@ class Load:
             event_name (str): Event name
             lead_time_event (int): Lead time event"""
         year = datetime.today().year
-        month_dict = self.settings.get_country_setting(country, "Climate_Region")[0]["leadtime"]
+        month_dict = self.settings.get_country_setting(country, "climate_region")[0]["leadtime"]
         # Iterate in reverse to get the most recent one
         for month in reversed(list(month_dict.keys())):
             for entry in month_dict[month]:

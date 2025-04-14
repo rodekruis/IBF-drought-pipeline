@@ -42,7 +42,7 @@ class RainfallDataUnit(AdminDataUnit):
         for lead_time in range(1, 7):
             # Check if necessary data is available
             if lead_time not in self.rainfall_forecast:
-                print(f"Warning: Missing rainfall forecast data for lead_time {lead_time}")
+                print(f"Warning: Missing rainfall forecast data for lead_time {lead_time}") # TODO: replace all print() with logger 
                 continue
             if lead_time not in self.tercile_lower:
                 print(f"Warning: Missing tercile lower data for lead_time {lead_time}")

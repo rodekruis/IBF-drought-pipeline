@@ -173,7 +173,8 @@ class Forecast:
         """Determine if trigger level is reached, its probability, and the alert class"""
 
         country = self.data.threshold_climateregion.country
-        trigger_on_minimum_probability = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-probability']
+        trigger_on_minimum_probability = self.settings.get_country_setting(
+            country, "trigger_model")['trigger-on-minimum-probability']
 
         # remove this line if we are uploading for mulltiple triggers 
         if debug:
@@ -183,27 +184,16 @@ class Forecast:
             elif scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.9
 
-
-
-
-
-        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(     country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']      
-   
-
+        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(
+            country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']
         classify_alert_on = self.settings.get_country_setting(country, "classify-alert-on")
-    
-
         alert_on_minimum_probability = self.settings.get_country_setting(
             country, "alert-on-minimum-probability"
         )
 
         climate_regions= {}
-
         current_month = date.today().strftime('%b')  # 'Feb' for February check if this can be passed from settings climate_regions should come form settings file
         admin_levels=self.settings.get_country_setting(country, "admin-levels")        
-
-  
- 
         ''' 
         for entry in self.settings.get_country_setting(country,"Climate_Region"):
  
@@ -217,26 +207,19 @@ class Forecast:
                 else:
                     raise ValueError("climate region not defined in config file ") 
         '''  
-   
 
         for climateregion in self.data.threshold_climateregion.get_climate_region_codes():
             for lead_time in range(0, 6):   
-                
                 pcodes=self.data.threshold_climateregion.get_data_unit(climate_region_code=climateregion).pcodes
-
                 output_file = f"{self.output_data_path}/rlower_tercile_probability_{lead_time}-month_{country}.tif"   
 
                 # Open the TIF file as an xarray object
                 rlower_tercile_probability = rioxarray.open_rasterio(output_file)
-
                 for adm_level in admin_levels:
                     climateRegionPcodes=pcodes[f'{adm_level}']
-
                     admin_boundary=self.load.get_adm_boundaries(country,adm_level) 
-
                     climate_data_unit = self.data.rainfall_climateregion.get_climate_region_data_unit(climateregion, lead_time)
-
-                    tercile_lower=climate_data_unit.tercile_lower         
+                    tercile_lower=climate_data_unit.tercile_lower
                     likelihood=climate_data_unit.likelihood
                     triggered=climate_data_unit.triggered   
                     forecast=climate_data_unit.forecast
@@ -261,21 +244,17 @@ class Forecast:
                             likelihood=likelihood,
                             tercile_lower=tercile_lower,
                             forecast=forecast,
-                            tercile_upper=tercile_upper                            
-                        )                
-                        )              
-                   
+                            tercile_upper=tercile_upper
+                            )
+                        )
 
                     for pcode in climateRegionPcodes: 
                         gdf1 = admin_boundary.query(f'adm{adm_level}_pcode == @pcode')
                         clipped_regional_mean = rlower_tercile_probability.rio.clip(gdf1.geometry, gdf1.crs, drop=True, all_touched=True)
-
                         likelihood = round(np.nanmedian(clipped_regional_mean.values),2)
-
                         binary_clipped_regional_mean = (
                             clipped_regional_mean > trigger_on_minimum_probability
                             ).astype(int)
-
                         anomalies_df = binary_clipped_regional_mean.to_dataframe(name='anomaly')
                         percentage_greater_than_zero = (anomalies_df.anomaly.values > 0).sum() / anomalies_df.anomaly.values.size  
 
@@ -284,15 +263,12 @@ class Forecast:
                         else:
                             triggered=0
 
-
                         alert_class_admin = classify_alert(
                             triggered,
                             likelihood,
                             classify_alert_on,
                             alert_on_minimum_probability,
-                        )   
-
-
+                        )
                         self.data.forecast_admin.upsert_data_unit(
                             ForecastDataUnit(
                             pcode=pcode,
@@ -304,26 +280,18 @@ class Forecast:
                             #tercile_lower=tercile_lower,
                             forecast=forecast,
                             #tercile_upper=tercile_upper,
-
                         ))
-
-
-
 
     def __compute_affected_pop_raster(self):
         """Compute affected population raster given a flood extent"""
         country = self.data.forecast_admin.country
 
-
-
         # get population density raster
         self.load.get_population_density(country, self.pop_raster)
-
         flood_shapes = []
 
         for lead_time in self.data.forecast_admin.get_lead_times():
             flood_raster_lead_time = self.output_data_path + f"/drought_extent_{lead_time}-month_{country}.tif" 
-            
             aff_pop_raster_lead_time = self.aff_pop_raster.replace(
                 ".tif", f"_{lead_time}_{country}.tif"
             )
@@ -357,9 +325,7 @@ class Forecast:
         self.__compute_affected_pop_raster()
         country = self.data.threshold_climateregion.country
 
-        #this have to be calculated per admin level     
-
-
+        #this have to be calculated per admin level
         # calculate affected population per admin division
         for adm_lvl in self.settings.get_country_setting(country, "admin-levels"):
         
@@ -367,7 +333,6 @@ class Forecast:
             gdf_adm = self.load.get_adm_boundaries(
                 self.data.forecast_admin.country, adm_lvl
             )
-
             gdf_aff_pop, gdf_pop = pd.DataFrame(), pd.DataFrame()
             ''' 
             for climateRegion in climateRegions:#merged_data['Climate_Region_code'].unique().tolist():
