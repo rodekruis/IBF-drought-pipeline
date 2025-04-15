@@ -4,8 +4,8 @@ from droughtpipeline.data import (
     PipelineDataSets,
     ForecastDataUnit
 )
-
 from droughtpipeline.load import Load
+from droughtpipeline.utils import replace_year_month
 from datetime import datetime, date, timedelta
 from typing import List
 from shapely import Polygon
@@ -18,8 +18,6 @@ import rasterio
 from rasterio.merge import merge
 from rasterio.mask import mask
 from rasterio.features import shapes
-import shutil
-import logging
 import rioxarray
 import warnings
 warnings.simplefilter("ignore", category=RuntimeWarning)
@@ -149,29 +147,33 @@ class Forecast:
         secrets.check_secrets([])
         self.secrets = secrets
 
-    def compute_forecast(self,debug: bool = False):
+    def compute_forecast(self,debug: bool = False, datestart: datetime = date.today()):
         """
         Forecast floods based on river discharge data
         """
         os.makedirs(self.input_data_path, exist_ok=True)
         os.makedirs(self.output_data_path, exist_ok=True)
-        self.compute_forecast_admin(debug=debug)
+        self.compute_forecast_admin(debug=debug, datestart=datestart)
         
 
-    def compute_forecast_admin(self,debug: bool = False):
+    def compute_forecast_admin(self,debug: bool = False, datestart: datetime = date.today()):
         """
         Forecast drought per climate region based on different models for now ecmwf seasonal rainfall forecast is implmented  
         1. determine if trigger level is reached, with which probability, and alert class
         2. compute drought extent
         3. compute people affected
         """
-        self.__compute_triggers(debug=debug)
+        self.__compute_triggers(debug=debug, datestart=datestart)
         if self.data.forecast_admin.is_any_triggered():
             self.__compute_affected_pop()
 
-    def __compute_triggers(self,debug: bool = False):
+    def __compute_triggers(self,debug: bool = False, datestart: datetime = date.today()):
         """Determine if trigger level is reached, its probability, and the alert class"""
 
+        current_year = datestart.year
+        current_month = datestart.month
+        data_timestamp = replace_year_month(datetime.now(), current_year, current_month)
+        
         country = self.data.threshold_climateregion.country
         trigger_on_minimum_probability = self.settings.get_country_setting(
             country, "trigger_model")['trigger-on-minimum-probability']
@@ -247,7 +249,7 @@ class Forecast:
                             tercile_upper=tercile_upper
                             )
                         )
-
+                    
                     for pcode in climateRegionPcodes: 
                         gdf1 = admin_boundary.query(f'adm{adm_level}_pcode == @pcode')
                         clipped_regional_mean = rlower_tercile_probability.rio.clip(gdf1.geometry, gdf1.crs, drop=True, all_touched=True)
@@ -269,6 +271,7 @@ class Forecast:
                             classify_alert_on,
                             alert_on_minimum_probability,
                         )
+                        self.data.forecast_admin.timestamp = data_timestamp
                         self.data.forecast_admin.upsert_data_unit(
                             ForecastDataUnit(
                             pcode=pcode,
@@ -281,7 +284,7 @@ class Forecast:
                             forecast=forecast,
                             #tercile_upper=tercile_upper,
                         ))
-
+                        
     def __compute_affected_pop_raster(self):
         """Compute affected population raster given a flood extent"""
         country = self.data.forecast_admin.country
@@ -406,4 +409,3 @@ class Forecast:
 
                         except (ValueError, TypeError, KeyError):
                             forecast_data_unit.pop_affected_perc = 0.0
-
