@@ -178,7 +178,7 @@ class Forecast:
 
         # remove this line if we are uploading for mulltiple triggers 
         if debug:
-            scenario = os.getenv("SCENARIO", "Forecast")
+            scenario = os.getenv("SCENARIO", "Forecast")  # TODO: pull scenario debug to a proper scenario script
             if scenario == "Warning":
                 trigger_on_minimum_probability = 0.1
             elif scenario == "NoWarning":

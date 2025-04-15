@@ -67,7 +67,7 @@ class Pipeline:
                 self.load.save_pipeline_data(
                     data_type="seasonal-rainfall-forecast", dataset=self.data.forecast_admin
                 )
-                logging.info("send data to 510 datalack")
+                logging.info("send data to 510 lake")
                 self.load.upload_json_files( 
                     country=self.country,
                     local_path=self.forecast.output_data_path)
@@ -79,7 +79,7 @@ class Pipeline:
                     data_type="seasonal-rainfall-forecast",
                     country=self.country,
                     start_date=datestart,
-                    end_date=datestart+timedelta(days=1),
+                    end_date=datestart+timedelta(days=1), # TODO: to sync with upload vars current_month, current_year
                 )
             logging.info("send data to IBF API")
             self.load.send_to_ibf_api(
@@ -87,5 +87,6 @@ class Pipeline:
                 threshold_climateregion=self.data.threshold_climateregion,
                 forecast_climateregion=self.data.forecast_climateregion,
                 drought_extent=self.forecast.drought_extent_raster,
+                upload_time=datestart,
                 debug=debug,
             )
