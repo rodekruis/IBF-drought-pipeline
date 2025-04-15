@@ -14,9 +14,9 @@ import click
 @click.option("--send", help="send to IBF", default=False, is_flag=True)
 @click.option("--save", help="save to storage", default=False, is_flag=True)
 @click.option(
-    "--datestart",
-    help="datetime start ISO 8601",
-    default=date.today().strftime("%Y-%m-%d"),
+    "--month",
+    help="year-month in ISO 8601",
+    default=date.today().strftime("%Y-%m"),
 )
 @click.option(
     "--debug",
@@ -25,10 +25,11 @@ import click
     is_flag=True,
 ) # TODO: define proper debug mode
 
+
 def run_drought_pipeline(
-    country, prepare, extract, forecast, send, save, datestart, debug
+    country, prepare, extract, forecast, send, save, month, debug
 ):
-    datestart = datetime.strptime(datestart, "%Y-%m-%d")
+    datestart = format_date(month)
     pipe = Pipeline(
         country=country,
         settings=Settings("config/config.yaml"),
@@ -43,6 +44,19 @@ def run_drought_pipeline(
         debug=debug,
         datestart=datestart
     )
+
+def format_date(month: str) -> datetime:
+    today_day = date.today().day
+    year, month = map(int, month.split('-'))
+    # Create the new date using year, month, and today's day
+    try:
+        datestart = date(year, month, today_day)
+    except ValueError:
+        # Handle case where the day doesn't exist in that month (e.g., Feb 30)
+        from calendar import monthrange
+        last_day = monthrange(year, month)[1]
+        datestart = date(year, month, last_day)
+    return datestart
 
 
 if __name__ == "__main__":

@@ -299,21 +299,26 @@ class Load:
 
         processed_pcodes, triggered_lead_times =  [], []
 
-        if debug: # TODO: to check why debug mode is needed here, to edit all upper case variables to lower case
-            DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
-            DEFAULT_CURRENT_MONTH_NUMERIC = datetime.strptime(DEFAULT_CURRENT_MONTH, '%b').month          
-            DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
-            upload_time_ = datetime(int(DEFAULT_CURRENT_YEAR), int(DEFAULT_CURRENT_MONTH_NUMERIC), 1, 0, 0, 0)
-            upload_time = upload_time_.strftime("%Y-%m-%dT%H:%M:%SZ") 
-            logging.info(f"debug: upload_time {upload_time} {upload_time_} {DEFAULT_CURRENT_MONTH_NUMERIC} {DEFAULT_CURRENT_YEAR}" )
-        else:
-            DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
+        # if debug: # TODO: to check why debug mode is needed here, to edit all upper case variables to lower case
+        #     DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
+        #     DEFAULT_CURRENT_MONTH_NUMERIC = datetime.strptime(DEFAULT_CURRENT_MONTH, '%b').month          
+        #     DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
+        #     upload_time_ = datetime(int(DEFAULT_CURRENT_YEAR), int(DEFAULT_CURRENT_MONTH_NUMERIC), 1, 0, 0, 0)
+        #     upload_time = upload_time_.strftime("%Y-%m-%dT%H:%M:%SZ") 
+        #     logging.info(f"debug: upload_time {upload_time} {upload_time_} {DEFAULT_CURRENT_MONTH_NUMERIC} {DEFAULT_CURRENT_YEAR}" )
+        # else:
+        #     DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
+        
+        current_year = upload_time.strftime('%Y')
+        current_month = upload_time.strftime("%m")
+        current_month_abb = datetime.strptime(current_month, '%m').strftime('%b')
+        upload_time = datetime.today().strftime(f"{current_year}-{current_month}-%dT%H:%M:%SZ")
 
         for climate_region_code in forecast_climateregion.get_climate_region_codes():
             pcodes = threshold_climateregion.get_data_unit(
                 climate_region_code=climate_region_code).pcodes
             possible_events = self.settings.get_leadtime_for_climate_region_code(
-                country, climate_region_code, DEFAULT_CURRENT_MONTH)
+                country, climate_region_code, current_month_abb)
             lead_times_list=[]
             expected_events = {}
 

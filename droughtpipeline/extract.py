@@ -152,20 +152,20 @@ class Extract:
             self.prepare_ecmwf_data()
             self.extract_ecmwf_data()
 
-    def prepare_ecmwf_data(self, country: str = None, debug: bool = False, datestart: datetime = None, dateend: datetime = None):
+    def prepare_ecmwf_data(self, country: str = None, debug: bool = False, datestart: datetime = None):
         """
         download ecmwf data to the extent of the country
         """
         if country is None:
             country = self.country
         logging.info(f"start preparing ECMWF seasonal forecast data for country {country}") 
-        current_year=datetime.today().strftime("%Y")
-        current_month=datetime.today().strftime("%m")
+        # current_year = datetime.today().strftime("%Y")
+        # current_month = datetime.today().strftime("%m")
 
-        if debug:     
-            current_year = datestart.strftime('%Y')
-            current_month = datestart.strftime("%m")
-            
+        # if debug:     
+        current_year = datestart.strftime('%Y')
+        current_month = datestart.strftime("%m")
+        
         # Download netcdf file
         logging.info(f"downloading ecmwf data ")
         try:
@@ -275,7 +275,7 @@ class Extract:
         trigger_on_minimum_probability = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-probability']
 
         if debug:
-            scenario = os.getenv("SCENARIO", "Forecast")
+            scenario = os.getenv("SCENARIO", "Forecast") # TODO: pull scenario debug to a proper scenario script
             if scenario == "Trigger":
                 trigger_on_minimum_probability = 0.1
             elif scenario == "NoTrigger":
