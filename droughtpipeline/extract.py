@@ -7,10 +7,9 @@ from droughtpipeline.data import (
     RainfallClimateRegionDataUnit,
 )
 from droughtpipeline.load import Load
- 
+from droughtpipeline.utils import replace_year_month
 import os
-from datetime import datetime, timedelta
-import time
+from datetime import datetime
 import geopandas as gpd
 import pandas as pd
 import xarray as xr
@@ -19,17 +18,9 @@ from rasterio.transform import from_origin
 from rasterio.crs import CRS
 import rasterio
 import logging
-import itertools
-from typing import List
-import urllib.request
-import ftplib
-import copy
 from dateutil.relativedelta import relativedelta
-import json
-import calendar
 from calendar import monthrange
 import rioxarray
-
 import numpy as np
 import warnings
 from rasterio.mask import mask
@@ -63,9 +54,9 @@ def convert_to_mm_per_month(hindcast, forecast):
     year = ds_hindcast.time.dt.year.values[0]
     
     # Calculate the number of days in each forecast month
-    #days_in_month = [calendar.monthrange(year, month + fcmonth - 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
+    #days_in_month = [monthrange(year, month + fcmonth - 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
 
-    days_in_month = [calendar.monthrange(year, ((month + fcmonth - 1) - 1) % 12 + 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
+    days_in_month = [monthrange(year, ((month + fcmonth - 1) - 1) % 12 + 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
     
     # Assign the number of days as a coordinate to the dataset
     ds = ds_hindcast.assign_coords(numdays=('forecastMonth', days_in_month))
@@ -159,10 +150,7 @@ class Extract:
         if country is None:
             country = self.country
         logging.info(f"start preparing ECMWF seasonal forecast data for country {country}") 
-        # current_year = datetime.today().strftime("%Y")
-        # current_month = datetime.today().strftime("%m")
-
-        # if debug:     
+        
         current_year = datestart.strftime('%Y')
         current_month = datestart.strftime("%m")
         
@@ -262,12 +250,17 @@ class Extract:
 
         return subset
    
-    def extract_ecmwf_data(self, country: str = None, debug: bool = False):
+    def extract_ecmwf_data(self, country: str = None, debug: bool = False, datestart: datetime = None):
         """
         extract seasonal rainfall forecastand extract it per climate region
         """
         if country is None:
             country = self.country   
+
+        current_year = datestart.year
+        current_month = datestart.month
+        data_timestamp = replace_year_month(datetime.now(), current_year, current_month)
+        
         ### admin_level 
         logging.info(f"Extract ecmwf data for country {country}")
         admin_level_= self.settings.get_country_setting(country, "admin-levels")
@@ -278,7 +271,7 @@ class Extract:
             scenario = os.getenv("SCENARIO", "Forecast") # TODO: pull scenario debug to a proper scenario script
             if scenario == "Trigger":
                 trigger_on_minimum_probability = 0.1
-            elif scenario == "NoTrigger":
+            elif scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.9
             elif scenario == "Warning":
                 trigger_on_minimum_probability = 0.3
@@ -474,6 +467,7 @@ class Extract:
                     triggered=0
 
                 logging.info(f"upserting data for climate region {climateRegion} for month {month} trigger status {triggered} likelihood {likelihood}" )
+                self.data.rainfall_climateregion.timestamp = data_timestamp
                 self.data.rainfall_climateregion.upsert_data_unit(
                         ForecastDataUnit(
                             climate_region_code=climateRegion,
@@ -617,4 +611,3 @@ class Extract:
           
         })
         return raster_files
-

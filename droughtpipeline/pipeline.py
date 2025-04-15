@@ -57,11 +57,11 @@ class Pipeline:
 
         if extract:
             logging.info(f"extract ecmwf data")
-            self.extract.extract_ecmwf_data(country=self.country, debug=debug)
+            self.extract.extract_ecmwf_data(country=self.country, debug=debug, datestart=datestart)
 
         if forecast:
             logging.info("forecast drought")
-            self.forecast.compute_forecast(debug=debug)
+            self.forecast.compute_forecast(debug=debug, datestart=datestart)
             if save:
                 logging.info("save drought forecasts to storage")
                 self.load.save_pipeline_data(

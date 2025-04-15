@@ -277,7 +277,7 @@ class Load:
         threshold_climateregion: ClimateRegionDataSet,
         forecast_climateregion: ClimateRegionDataSet,
         drought_extent: str = None,
-        upload_time: str = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        upload_time: datetime = datetime.now(),#.strftime("%Y-%m-%dT%H:%M:%SZ"),
         debug: bool = False,
     ):
         """Send drought forecast data to IBF API"""
@@ -299,20 +299,10 @@ class Load:
 
         processed_pcodes, triggered_lead_times =  [], []
 
-        # if debug: # TODO: to check why debug mode is needed here, to edit all upper case variables to lower case
-        #     DEFAULT_CURRENT_MONTH = os.getenv("CURRENT_MONTH_TEST", date.today().strftime('%b'))
-        #     DEFAULT_CURRENT_MONTH_NUMERIC = datetime.strptime(DEFAULT_CURRENT_MONTH, '%b').month          
-        #     DEFAULT_CURRENT_YEAR = os.getenv("CURRENT_YEAR_TEST", date.today().year)
-        #     upload_time_ = datetime(int(DEFAULT_CURRENT_YEAR), int(DEFAULT_CURRENT_MONTH_NUMERIC), 1, 0, 0, 0)
-        #     upload_time = upload_time_.strftime("%Y-%m-%dT%H:%M:%SZ") 
-        #     logging.info(f"debug: upload_time {upload_time} {upload_time_} {DEFAULT_CURRENT_MONTH_NUMERIC} {DEFAULT_CURRENT_YEAR}" )
-        # else:
-        #     DEFAULT_CURRENT_MONTH = date.today().strftime('%b')
-        
-        current_year = upload_time.strftime('%Y')
-        current_month = upload_time.strftime("%m")
-        current_month_abb = datetime.strptime(current_month, '%m').strftime('%b')
-        upload_time = datetime.today().strftime(f"{current_year}-{current_month}-%dT%H:%M:%SZ")
+        current_year = upload_time.year
+        current_month = upload_time.month
+        current_month_abb = upload_time.strftime('%b')
+        upload_time = datetime.today().strftime(f"{current_year}-{current_month:02}-%dT%H:%M:%SZ")
 
         for climate_region_code in forecast_climateregion.get_climate_region_codes():
             pcodes = threshold_climateregion.get_data_unit(
@@ -361,6 +351,8 @@ class Load:
                     # NOTE: exposure data is updated with new data during pre-season and not updated during the season
                     forecast_data_to_send = self.__fetch_or_fallback(
                         lead_time_event, 
+                        current_year,
+                        current_month,
                         country,
                         event_name,
                         forecast_data, 
@@ -515,9 +507,9 @@ class Load:
                 )
         for data_unit in dataset.data_units:
             record = vars(data_unit)
-            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S") # TODO: to sync with upload vars current_month, current_year
+            record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S")
             record["country"] = dataset.country
-            record["id"] = get_data_unit_id(data_unit, dataset) # TODO: to sync with upload vars current_month, current_year
+            record["id"] = get_data_unit_id(data_unit, dataset)
             cosmos_container_client.upsert_item(body=record)
 
 
@@ -755,30 +747,46 @@ class Load:
         c.retrieve(dataset, request, target)
 
 
-    def __look_up_time(self, country, event_name, lead_time_event='1-month'):
+    def __look_up_time(
+            self, 
+            country, 
+            event_name, 
+            current_year,
+            current_month,
+            lead_time_event='1-month'
+        ):
         """Look up the month of the most recent 1-month forecast
         and return the month's start and end date.
         Args:
             country (str): Country name
             event_name (str): Event name
             lead_time_event (int): Lead time event"""
-        year = datetime.today().year
         month_dict = self.settings.get_country_setting(country, "climate_region")[0]["leadtime"]
         # Iterate in reverse to get the most recent one
         for month in reversed(list(month_dict.keys())):
             for entry in month_dict[month]:
                 if event_name in entry and entry[event_name] == lead_time_event:
                     month_num = datetime.strptime(month, "%b").month
-                    datestart = datetime(year, month_num, 1)
+                    if month_num > current_month:
+                        current_year -= 1
+                    datestart = datetime(current_year, month_num, 1)
                     if month_num == 12:
-                        next_month = datetime(year + 1, 1, 1)
+                        next_month = datetime(current_year + 1, 1, 1)
                     else:
-                        next_month = datetime(year, month_num + 1, 1)
+                        next_month = datetime(current_year, month_num + 1, 1)
                     dateend = next_month - timedelta(days=1)
         return datestart.date(), dateend.date()
     
 
-    def __fetch_or_fallback(self, lead_time, country, event_name, forecast_data):
+    def __fetch_or_fallback(
+            self, 
+            lead_time, 
+            current_year,
+            current_month,
+            country, 
+            event_name, 
+            forecast_data
+        ):
         '''
         Fetch data from the database or return fallback data if not available.
         '''
@@ -787,7 +795,11 @@ class Load:
                 datestart, dateend = self.__look_up_time(
                     country, 
                     event_name, 
-                    lead_time_event='1-month',)
+                    current_year=current_year,
+                    current_month=current_month,
+                    lead_time_event='1-month',
+                )
+                logging.info(f"try to fetch data between datestart: {datestart}, dateend: {dateend}")
                 forecast_data = self.get_pipeline_data(
                     'seasonal-rainfall-forecast', 
                     country=country,
@@ -795,6 +807,6 @@ class Load:
                     end_date=dateend,
                 )
             except KeyError as e:
-                logging.warning(f"Fallback to current forecast data.")
+                logging.warning(f"fetching data failed, fallback to current forecast data.")
                 pass
         return forecast_data

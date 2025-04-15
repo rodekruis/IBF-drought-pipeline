@@ -384,28 +384,28 @@ class ClimateRegionDataSet:
 class PipelineDataSets:
     """Collection of datasets used by the pipeline"""
 
-    def __init__(self, country: str, settings: Settings):
+    def __init__(self, country: str, settings: Settings, datetime:datetime = datetime.today()):
         self.country = country
 
         self.rainfall_climateregion = ClimateRegionDataSet(
             country=self.country,
-            timestamp=datetime.today()
+            timestamp=datetime
         )
         
         self.forecast_climateregion = ClimateRegionDataSet(
             country=self.country,
-            timestamp=datetime.today()
+            timestamp=datetime
         )        
 
         self.forecast_admin = AdminDataSet(
             country=self.country,
-            timestamp=datetime.today(),
+            timestamp=datetime,
             adm_levels=settings.get_country_setting(country, "admin-levels"),
         )
 
         self.threshold_climateregion = ClimateRegionDataSet(
             country=self.country, 
-            timestamp=datetime.today()
+            timestamp=datetime
         )
   
 
