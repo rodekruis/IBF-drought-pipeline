@@ -269,10 +269,11 @@ class Extract:
 
         if debug:
             scenario = os.getenv("SCENARIO", "Forecast") # TODO: pull scenario debug to a proper scenario script
+            print('scenario: ', scenario)
             if scenario == "Trigger":
-                trigger_on_minimum_probability = 0.1
+                trigger_on_minimum_probability = 0.01
             elif scenario == "NoWarning":
-                trigger_on_minimum_probability = 0.9
+                trigger_on_minimum_probability = 0.99
             elif scenario == "Warning":
                 trigger_on_minimum_probability = 0.3
         
