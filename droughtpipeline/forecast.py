@@ -182,7 +182,7 @@ class Forecast:
         if debug:
             scenario = os.getenv("SCENARIO", "Forecast")  # TODO: pull scenario debug to a proper scenario script
             if scenario == "Warning":
-                trigger_on_minimum_probability = 0.3
+                trigger_on_minimum_probability = 0.01
             elif scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.99
 
