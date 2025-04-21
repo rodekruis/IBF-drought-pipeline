@@ -6,7 +6,6 @@ import time
 import os
 import json
 import cdsapi  
-import calendar
 from droughtpipeline.secrets import Secrets
 from droughtpipeline.settings import Settings
 from droughtpipeline.data import (
@@ -25,14 +24,15 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import requests
 import geopandas as gpd
-from typing import List
 import shutil
+from itertools import product
 from azure.storage.blob import BlobServiceClient
 from azure.core.exceptions import ResourceNotFoundError
 
 COSMOS_DATA_TYPES = [
     "climate-region",
     "seasonal-rainfall-forecast",
+    'seasonal-rainfall-forecast-climate-region'
 ]
 
 
@@ -277,8 +277,7 @@ class Load:
         threshold_climateregion: ClimateRegionDataSet,
         forecast_climateregion: ClimateRegionDataSet,
         drought_extent: str = None,
-        upload_time: datetime = datetime.now(),#.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        debug: bool = False,
+        upload_time: datetime = datetime.now(),
     ):
         """Send drought forecast data to IBF API"""
 
@@ -297,7 +296,7 @@ class Load:
         pipeline_will_trigger_portal = self.settings.get_country_setting(
             country, "pipeline-will-trigger-portal") #TODO: make varname more descriptive
 
-        processed_pcodes, triggered_lead_times =  [], []
+        processed_pcodes = []
 
         current_year = upload_time.year
         current_month = upload_time.month
@@ -319,37 +318,25 @@ class Load:
                     expected_events[lead_time] = season_name
                     lead_times_list.append(lead_time)
 
-            events = {}
-            
-            for lead_time in range(0, 6):
-                if (forecast_climateregion.get_climate_region_data_unit(
-                    climate_region_code, lead_time
-                    ).alert_class!= "no"):
-                    events[lead_time] = "alert"
-            for lead_time in range(0, 6):
-                if (forecast_climateregion.get_climate_region_data_unit(
-                    climate_region_code, lead_time
-                    ).triggered):
-                    events[lead_time] = "trigger"
-                    triggered_lead_times.append(lead_time)
-            if not events:
-                continue
+            # current events
+            events = self.__list_events_from_climateregion(
+                forecast_climateregion, 
+                climate_region_code)
 
-            events = dict(sorted(events.items()))
             climate_region_name = self.settings.get_climate_region_name_by_code(
                 country,climate_region_code)  
 
-            for lead_time_event , event_type in events.items():     
-                # NOTE: here we are assuming we will not expect two events in a climate region  with the same lead time            
-                if (lead_time_event in list(expected_events.keys()) and 
-                    lead_time_event in range(0, 4)): # no upload for lead time greater than 3 months    
+            for lead_time_event in range(0, 4):
+                # NOTE: here we are assuming we will not expect two events in a climate region  with the same lead time
+                if lead_time_event in list(expected_events.keys()):
                     season_name = expected_events[lead_time_event]
-                    if climate_region_name.split('_')[0] in ['National','national']:
+                    if climate_region_name.lower().split('_')[0] == 'national':
                         event_name = season_name 
                     else:
                         event_name = f"{climate_region_name} {season_name}"
                     # NOTE: exposure data is updated with new data during pre-season and not updated during the season
-                    forecast_data_to_send = self.__fetch_or_fallback(
+                    preseason_event, forecast_data_to_send = self.__fetch_or_fallback(
+                        climate_region_code,
                         lead_time_event, 
                         current_year,
                         current_month,
@@ -357,12 +344,17 @@ class Load:
                         event_name,
                         forecast_data, 
                     )
+                    if (preseason_event is False) or (
+                        (lead_time_event not in events) and (preseason_event is None)):
+                        # NOTE: this is to skip to upload empty exposure when no events and no data fetched
+                        continue
                     for indicator in indicators:
                         for adm_level in admin_levels:
                             exposure_pcodes = []
                             for pcode in pcodes[f'{adm_level}']:
                                 forecast_admin = forecast_data_to_send.get_data_unit(
-                                    pcode, lead_time_event
+                                    pcode=pcode,
+                                    lead_time=lead_time
                                 )
                                 amount = None
                                 if indicator == "population_affected":
@@ -420,8 +412,8 @@ class Load:
             self.ibf_api_post_request( "admin-area-dynamic-data/raster/drought", files=files )
 
         # send empty exposure data
-        logging.info(f"send empty exposure data for areas {processed_pcodes}")
         if len(processed_pcodes) == 0:
+            logging.info(f"send empty exposure data")
             for lead_time in set(lead_times_list):
                 for indicator in indicators:
                     for adm_level in admin_levels:
@@ -478,6 +470,12 @@ class Load:
             )
         ## check data types
         if data_type == "seasonal-rainfall-forecast":
+            for data_unit in dataset.data_units:
+                if not isinstance(data_unit, ForecastDataUnit):
+                    raise ValueError(
+                        f"Data unit {data_unit} is not of type seasonal rainfall forecast"
+                    )
+        elif data_type == "seasonal-rainfall-forecast-climate-region":
             for data_unit in dataset.data_units:
                 if not isinstance(data_unit, ForecastDataUnit):
                     raise ValueError(
@@ -560,10 +558,11 @@ class Load:
                         record["country"] == country
                         and record["timestamp"] == timestamp
                     ):
-                        if data_type == "seasonal-rainfall-forecast":
+                        if data_type in ["seasonal-rainfall-forecast", "seasonal-rainfall-forecast-climate-region"]:
                             data_unit = ForecastDataUnit(
                                 adm_level=record["adm_level"],
                                 pcode=record["pcode"],
+                                climate_region_code=record["climate_region_code"],
                                 lead_time=record["lead_time"],
                                 triggered=record["triggered"],
                                 tercile_upper=record["tercile_upper"],
@@ -573,6 +572,19 @@ class Load:
                                 pop_affected_perc=record["pop_affected_perc"],
                                 alert_class=record["alert_class"],
                             )
+                        # elif data_type == "seasonal-rainfall-forecast-climate-region": # TODO:refine
+                        #     data_unit = ForecastDataUnit(
+                        #         adm_level=record["adm_level"],
+                        #         pcode=record["pcode"],
+                        #         lead_time=record["lead_time"],
+                        #         triggered=record["triggered"],
+                        #         tercile_upper=record["tercile_upper"],
+                        #         tercile_lower=record["tercile_lower"],
+                        #         likelihood=record["likelihood"],
+                        #         pop_affected=record["pop_affected"],
+                        #         pop_affected_perc=record["pop_affected_perc"],
+                        #         alert_class=record["alert_class"],
+                        #     )
                         elif data_type == "climate-region":
                             data_unit = ClimateRegionDataUnit(
                                 adm_level=record["adm_level"],
@@ -585,7 +597,7 @@ class Load:
                             raise ValueError(f"Invalid data type {data_type}")
                         data_units.append(data_unit)
                 if (
-                    data_type == "seasonal-rainfall-forecast" #  or data_type == "climate-region"
+                    data_type in [ "seasonal-rainfall-forecast"]#, "seasonal-rainfall-forecast-climate-region"]
                 ):
                     adm_levels = list( 
                         set([data_unit.adm_level for data_unit in data_units])
@@ -780,6 +792,7 @@ class Load:
 
     def __fetch_or_fallback(
             self, 
+            climate_region_code,
             lead_time, 
             current_year,
             current_month,
@@ -791,22 +804,62 @@ class Load:
         Fetch data from the database or return fallback data if not available.
         '''
         if lead_time == 0:
+            datestart, dateend = self.__look_up_time(
+                country, 
+                event_name, 
+                current_year=current_year,
+                current_month=current_month,
+                lead_time_event='1-month',
+            )
             try:
-                datestart, dateend = self.__look_up_time(
-                    country, 
-                    event_name, 
-                    current_year=current_year,
-                    current_month=current_month,
-                    lead_time_event='1-month',
+                logging.info(f"fetch climate region {climate_region_code} between datestart: {datestart}, dateend: {dateend}")
+                preseason_forecast_climateregion = self.get_pipeline_data(
+                    'seasonal-rainfall-forecast-climate-region', 
+                    country=country,
+                    start_date=datestart,
+                    end_date=dateend,
                 )
-                logging.info(f"try to fetch data between datestart: {datestart}, dateend: {dateend}")
+                preseason_events = self.__list_events_from_climateregion(
+                    preseason_forecast_climateregion, 
+                    climate_region_code)
+                if lead_time in list(preseason_events.keys()):
+                    preseason_event_lead_time_0 = True if preseason_events[0] == "trigger" else False
+                else:
+                    preseason_event_lead_time_0 = False
+                logging.info(f"fetch forecast data between datestart: {datestart}, dateend: {dateend}")
                 forecast_data = self.get_pipeline_data(
                     'seasonal-rainfall-forecast', 
                     country=country,
                     start_date=datestart,
                     end_date=dateend,
                 )
-            except KeyError as e:
-                logging.warning(f"fetching data failed, fallback to current forecast data.")
-                pass
-        return forecast_data
+            except KeyError as e: #TODO: not sure if this is the right exception to catch. Maybe just use if-else here
+                logging.warning(f"fetching data failed, fallback to current forecast data. Error: {e}")
+                preseason_event_lead_time_0 = None
+        else:
+            preseason_event_lead_time_0 = None
+        return preseason_event_lead_time_0, forecast_data
+    
+
+    def __list_events_from_climateregion(
+            self, 
+            forecast_climateregion, 
+            climate_region_code):
+        '''
+        List foreacast events from climateregion data unit
+        '''	
+        events = {}
+        # triggered_lead_times = []
+        for lead_time in range(0, 6):
+            if (forecast_climateregion.get_climate_region_data_unit(
+                climate_region_code, lead_time
+                ).alert_class!= "no"):
+                events[lead_time] = "alert"
+        for lead_time in range(0, 6):
+            if (forecast_climateregion.get_climate_region_data_unit(
+                climate_region_code, lead_time
+                ).triggered):
+                events[lead_time] = "trigger"
+                # triggered_lead_times.append(lead_time)
+        events = dict(sorted(events.items()))
+        return events
