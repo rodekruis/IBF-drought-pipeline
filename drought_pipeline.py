@@ -14,22 +14,22 @@ import click
 @click.option("--send", help="send to IBF", default=False, is_flag=True)
 @click.option("--save", help="save to storage", default=False, is_flag=True)
 @click.option(
-    "--month",
+    "--yearmonth",
     help="year-month in ISO 8601",
     default=date.today().strftime("%Y-%m"),
 )
 @click.option(
     "--debug",
-    help="debug mode: process data from last month",
+    help="debug mode: process data with mock scenario threshold",
     default=False,
     is_flag=True,
 ) # TODO: define proper debug mode
 
 
 def run_drought_pipeline(
-    country, prepare, extract, forecast, send, save, month, debug
+    country, prepare, extract, forecast, send, save, yearmonth, debug
 ):
-    datestart = format_date(month)
+    datestart = format_date(yearmonth)
     pipe = Pipeline(
         country=country,
         settings=Settings("config/config.yaml"),
@@ -45,9 +45,9 @@ def run_drought_pipeline(
         datestart=datestart
     )
 
-def format_date(month: str) -> datetime:
+def format_date(yearmonth: str) -> datetime:
     today_day = date.today().day
-    year, month = map(int, month.split('-'))
+    year, month = map(int, yearmonth.split('-'))
     # Create the new date using year, month, and today's day
     try:
         datestart = date(year, month, today_day)

@@ -65,6 +65,9 @@ class Pipeline:
             if save:
                 logging.info("save drought forecasts to storage")
                 self.load.save_pipeline_data(
+                    data_type="seasonal-rainfall-forecast-climate-region", dataset=self.data.forecast_climateregion
+                )
+                self.load.save_pipeline_data(
                     data_type="seasonal-rainfall-forecast", dataset=self.data.forecast_admin
                 )
                 logging.info("send data to 510 lake")
@@ -75,6 +78,12 @@ class Pipeline:
         if send:
             if not forecast:
                 logging.info("get drought forecasts from storage")
+                self.data.forecast_climateregion = self.load.get_pipeline_data(
+                    data_type="seasonal-rainfall-forecast-climate-region",
+                    country=self.country,
+                    start_date=datestart,
+                    end_date=datestart+timedelta(days=1), # TODO: to sync with upload vars current_month, current_year
+                )
                 self.data.forecast_admin = self.load.get_pipeline_data(
                     data_type="seasonal-rainfall-forecast",
                     country=self.country,
@@ -88,5 +97,4 @@ class Pipeline:
                 forecast_climateregion=self.data.forecast_climateregion,
                 drought_extent=self.forecast.drought_extent_raster,
                 upload_time=datestart,
-                debug=debug,
             )
