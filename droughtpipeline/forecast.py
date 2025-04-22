@@ -177,6 +177,8 @@ class Forecast:
         country = self.data.threshold_climateregion.country
         trigger_on_minimum_probability = self.settings.get_country_setting(
             country, "trigger_model")['trigger-on-minimum-probability']
+        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(
+            country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']
 
         # remove this line if we are uploading for mulltiple triggers 
         if debug:
@@ -186,8 +188,6 @@ class Forecast:
             elif scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.99
 
-        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(
-            country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']
         classify_alert_on = self.settings.get_country_setting(country, "classify-alert-on")
         alert_on_minimum_probability = self.settings.get_country_setting(
             country, "alert-on-minimum-probability"
@@ -236,6 +236,7 @@ class Forecast:
                         classify_alert_on,
                         alert_on_minimum_probability,
                     )
+                    self.data.forecast_climateregion.timestamp = data_timestamp
                     self.data.forecast_climateregion.upsert_data_unit(
                         ForecastDataUnit(
                             climate_region_code=climateregion,
