@@ -1,6 +1,28 @@
 # IBF Drought Pipeline
 
-## Running the Drought Pipeline with Docker Compose
+## Option 1: Running the Drought Pipeline with Poetry
+1. Fill in the secrets in .env.example and rename the file to .env; in this way, they will be loaded as environment variables
+2. Install requirements
+   ```
+   pip install poetry
+   poetry install --no-interaction
+   ```
+3. Run the pipeline with `python drought_pipeline.py` or `poetry run python drought_pipeline.py`
+   ```
+   Usage: drought_pipeline.py [OPTIONS]
+
+   Options:
+     --country TEXT        country ISO3
+     --prepare             prepare ECMWF data
+     --extract             extract ECMWF data
+     --forecast            forecast drought
+     --send                send to IBF
+     --save                save to storage
+     --yearmonth TEXT      year-month in ISO 8601
+     --debug               debug mode: process data with mock scenario threshold
+     --help                show this message and exit.
+   ```
+## Option 2: Running the Drought Pipeline with Docker Compose
 
 To run the drought pipeline for testing using Docker Compose, follow these steps:
 
@@ -20,20 +42,20 @@ You can modify the `command` section in the `docker-compose.yml` file to change 
 
 ## Triggering Model Run for Drought Scenarios
 
-This s allows you to test **"Warning"** and **"No Warning"** scenarios for a specific month by triggering a pipeline run via an API. The API is integrated with the [Logic App `drought-pipeline-sen`](https://portal.azure.com/#@rodekruis.onmicrosoft.com/resource/subscriptions/57b0d17a-5429-4dbb-8366-35c928e3ed94/resourceGroups/IBF-system/providers/Microsoft.Logic/workflows/drought-pipeline-sen/logicApp).
+This s allows you to test **"Warning"** and **"No Warning"** scenarios for a specific month by triggering a pipeline run via an API. The API is integrated with the [Logic App `drought-pipeline-scenario`](https://portal.azure.com/#@rodekruis.onmicrosoft.com/resource/subscriptions/57b0d17a-5429-4dbb-8366-35c928e3ed94/resourceGroups/IBF-system/providers/Microsoft.Logic/workflows/drought-pipeline-scenario/logicApp).
 
 ### How to Trigger a Model Run
 
 You can trigger a model run by making a request to the API and passing the following parameters:
 
-- `month` – A three-letter format of the month (e.g., `"Jan"`, `"Jul"`).
-- `year` – The four-digit year (e.g., `2024`).
-- `scenario` *(optional)* – Can be one of the following:
+- `country` - ISO3 country code (e.g. `KEN`)
+- `yearmonth` – Year and month as this format (e.g., `2024-09`).
+- `SCENARIO` *(optional)* – Can be one of the following:
   - `"Warning"` – Forces the model to trigger at a low threshold.
   - `"NoWarning"` – Forces the model to trigger only at a very high threshold.
   - the default is the standard threshold set in the Early Action Protocol (EAP).
 
-If you **omit** the `scenario` parameter, the default `"Forecast"` mode is used.
+If you **omit** the `SCENARIO` parameter, the default `"Forecast"` mode is used.
 you can run a scenario upto the current month, these forecasts are initialized on the 1st of each month and are released at 12:00 UTC on the 5th day of the month . [ECMWF data Dissemination schedule](https://confluence.ecmwf.int/display/DAC/Dissemination+schedule)
 
 ### Scenario Logic
@@ -134,7 +156,7 @@ The configuration file is structured in YAML format, and each section pertains t
 4. **classify-alert-on**: Defines whether multi-threshold classification is enabled.
 5. **alert-on-minimum-probability**: Sets the minimum thresholds for various alert levels.
 6. **trigger_model**: Defines the trigger model and its settings for triggering alerts.
-7. **Climate_Region**: Defines the climate region (e.g., National) and lead-time and season for each month.
+7. **climate_region**: Defines the climate region (e.g., National) and lead-time and season for each month.
 
 
 ### **countries**
@@ -201,13 +223,13 @@ trigger_model:
 
 ---
 
-### **Climate_Region**
+### **climate_region**
 This section specifies the climate region and the lead-time for each forecast season (e.g., for January, the forecast lead time could be 2 months).
 
 Example:
 
 ```yaml
-Climate_Region:
+climate_region:
   - name: National
     climate-region-code: 1
     leadtime:
