@@ -341,7 +341,7 @@ class Load:
                         current_year,
                         current_month,
                         country,
-                        event_name,
+                        season_name,
                         forecast_data, 
                     )
                     if (preseason_event is False) or (
@@ -774,7 +774,8 @@ class Load:
     def __look_up_dates(
             self, 
             country, 
-            event_name, 
+            climate_region_code,
+            season_name,
             current_year,
             current_month,
             lead_time_event='1-month'
@@ -786,11 +787,12 @@ class Load:
             event_name (str): Event name
             lead_time_event (int): Lead time event"""
         datestart, dateend = None, None
-        month_dict = self.settings.get_country_setting(country, "climate_region")[0]["leadtime"]
+        month_dict = self.settings.get_all_leadtime_for_climate_region_code(
+            country, climate_region_code)
         # Iterate in reverse to get the most recent one
         for month in reversed(list(month_dict.keys())):
             for entry in month_dict[month]:
-                if event_name in entry and entry[event_name] == lead_time_event:
+                if season_name in entry and entry[season_name] == lead_time_event:
                     month_num = datetime.strptime(month, "%b").month
                     if month_num > current_month:
                         current_year -= 1
@@ -825,7 +827,7 @@ class Load:
             current_year,
             current_month,
             country, 
-            event_name, 
+            season_name,
             forecast_data
         ):
         '''
@@ -834,7 +836,8 @@ class Load:
         if lead_time == 0:
             datestart, dateend = self.__look_up_dates(
                 country, 
-                event_name, 
+                climate_region_code,
+                season_name, 
                 current_year=current_year,
                 current_month=current_month,
                 lead_time_event='1-month',
