@@ -785,6 +785,7 @@ class Load:
             country (str): Country name
             event_name (str): Event name
             lead_time_event (int): Lead time event"""
+        datestart, dateend = None, None
         month_dict = self.settings.get_country_setting(country, "climate_region")[0]["leadtime"]
         # Iterate in reverse to get the most recent one
         for month in reversed(list(month_dict.keys())):
