@@ -496,13 +496,25 @@ class Load:
         )
         cosmos_db = client_.get_database_client("drought-pipeline")
         cosmos_container_client = cosmos_db.get_container_client(data_type)
+
+        # Check if data of the same month exists
+        start_date, end_date = self.__dates_for_month(
+            current_year=dataset.timestamp.year,
+            current_month=dataset.timestamp.month,
+            )
         if replace_country:
-            query = get_cosmos_query(country=dataset.country)
+            query = get_cosmos_query(
+                start_date=start_date,
+                end_date=end_date,
+                country=dataset.country
+            )
             old_records = cosmos_container_client.query_items(query)
             for old_record in old_records:
                 cosmos_container_client.delete_item(
                     item=old_record.get("id"), partition_key=dataset.country
                 )
+        
+        # Upsert new records
         for data_unit in dataset.data_units:
             record = vars(data_unit)
             record["timestamp"] = dataset.timestamp.strftime("%Y-%m-%dT%H:%M:%S")
@@ -759,7 +771,7 @@ class Load:
         c.retrieve(dataset, request, target)
 
 
-    def __look_up_time(
+    def __look_up_dates(
             self, 
             country, 
             event_name, 
@@ -781,14 +793,29 @@ class Load:
                     month_num = datetime.strptime(month, "%b").month
                     if month_num > current_month:
                         current_year -= 1
-                    datestart = datetime(current_year, month_num, 1)
-                    if month_num == 12:
-                        next_month = datetime(current_year + 1, 1, 1)
-                    else:
-                        next_month = datetime(current_year, month_num + 1, 1)
-                    dateend = next_month - timedelta(days=1)
+                    datestart, dateend = self.__dates_for_month(
+                        current_year=current_year,
+                        current_month=month_num,
+                        )
+                    return datestart, dateend
+        if datestart is None or dateend is None:
+            raise ValueError("No matching forecast period found.")
         return datestart.date(), dateend.date()
+
     
+    def __dates_for_month(
+            self,
+            current_year,
+            current_month
+    ):
+        '''Return start and end date of the given year and month.'''
+        datestart = datetime(current_year, current_month, 1)
+        if current_month == 12:
+            next_month = datetime(current_year + 1, 1, 1)
+        else:
+            next_month = datetime(current_year, current_month + 1, 1)
+        dateend = next_month - timedelta(days=1)
+        return datestart.date(), dateend.date()
 
     def __fetch_or_fallback(
             self, 
@@ -801,10 +828,10 @@ class Load:
             forecast_data
         ):
         '''
-        Fetch data from the database or return fallback data if not available.
+        Fetch data of the right events and lead time from the database or return fallback data if not available.
         '''
         if lead_time == 0:
-            datestart, dateend = self.__look_up_time(
+            datestart, dateend = self.__look_up_dates(
                 country, 
                 event_name, 
                 current_year=current_year,

@@ -265,17 +265,18 @@ class Extract:
         logging.info(f"Extract ecmwf data for country {country}")
         admin_level_= self.settings.get_country_setting(country, "admin-levels")
         triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']
-        trigger_on_minimum_probability = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-probability']
-
+        trigger_on_minimum_probability = self.settings.get_country_setting(
+            country, "trigger_model")['trigger-on-minimum-probability']
+        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(
+            country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']     
+        
         if debug:
             scenario = os.getenv("SCENARIO", "Forecast") # TODO: pull scenario debug to a proper scenario script
-            print('scenario: ', scenario)
-            if scenario == "Warning":
-                trigger_on_minimum_probability = 0.01
-            elif scenario == "NoWarning":
+            logging.info(f"scenario: {scenario}")
+            if scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.99
-        
-        trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']     
+            elif scenario == "Warning":
+                trigger_on_minimum_probability = 0.3
         
         logging.info("Extract seasonal forecast for each climate region") 
         ds_hindcast,ds_forecast=convert_to_mm_per_month(f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 

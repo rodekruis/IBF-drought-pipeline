@@ -65,10 +65,14 @@ class Pipeline:
             if save:
                 logging.info("save drought forecasts to storage")
                 self.load.save_pipeline_data(
-                    data_type="seasonal-rainfall-forecast-climate-region", dataset=self.data.forecast_climateregion
+                    data_type="seasonal-rainfall-forecast-climate-region", 
+                    dataset=self.data.forecast_climateregion,
+                    replace_country=True,
                 )
                 self.load.save_pipeline_data(
-                    data_type="seasonal-rainfall-forecast", dataset=self.data.forecast_admin
+                    data_type="seasonal-rainfall-forecast", 
+                    dataset=self.data.forecast_admin,
+                    replace_country=True,
                 )
                 logging.info("send data to 510 lake")
                 self.load.upload_json_files( 
