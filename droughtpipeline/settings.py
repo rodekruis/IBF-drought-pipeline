@@ -128,4 +128,20 @@ class Settings:
         raise ValueError(f"Climate region code {climate_region_code} not found in country {country}")
 
 
+    def get_all_leadtime_for_climate_region_code(self, country: str, climate_region_code: int):
+        # Fetch country setting
+        country_setting = next(
+            (x for x in self.get_setting("countries") if x["name"] == country), None
+        )
+        
+        if not country_setting:
+            raise ValueError(f"Country {country} not found in {self.setting_path}")
+        
+        # Loop through the climate regions for the country
+        for region in country_setting.get('climate_region', []):
+            if region["climate-region-code"] == climate_region_code:
+                return region['leadtime']
+
+        raise ValueError(f"Climate region code {climate_region_code} not found in country {country}")
+
 
