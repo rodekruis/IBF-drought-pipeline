@@ -331,9 +331,9 @@ class Load:
                 if lead_time_event in list(expected_events.keys()):
                     season_name = expected_events[lead_time_event]
                     if climate_region_name.lower().split('_')[0] == 'national':
-                        event_name = season_name 
+                        event_name = f"{season_name}_National"
                     else:
-                        event_name = f"{climate_region_name} {season_name}"
+                        event_name = (f"{climate_region_name} {season_name}_{climate_region_name}")
                     # NOTE: exposure data is updated with new data during pre-season and not updated during the season
                     preseason_event, forecast_data_to_send = self.__fetch_or_fallback(
                         climate_region_code,
