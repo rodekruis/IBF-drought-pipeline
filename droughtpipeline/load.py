@@ -865,7 +865,7 @@ class Load:
                     end_date=dateend,
                 )
             except KeyError as e: #TODO: not sure if this is the right exception to catch. Maybe just use if-else here
-                logging.warning(f"fetching data failed, fallback to current forecast data. Error: {e}")
+                logging.warning(f"Fetching data failed. {e}. Fallback to current forecast data.")
                 preseason_event_lead_time_0 = None
         else:
             preseason_event_lead_time_0 = None
