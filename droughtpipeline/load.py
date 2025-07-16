@@ -68,7 +68,7 @@ def get_cosmos_query(
 
 def get_data_unit_id(data_unit: AdminDataUnit, dataset: AdminDataSet):
     """Get data unit ID"""
-    if hasattr(data_unit, "pcode"):
+    if hasattr(data_unit, "pcode") and getattr(data_unit, "pcode") is not None:
         if hasattr(data_unit, "lead_time"):
             id_ = f"{data_unit.pcode}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}"
         else:
@@ -845,7 +845,7 @@ class Load:
                     start_date=datestart,
                     end_date=dateend,
                 )
-            except KeyError as e: #TODO: not sure if this is the right exception to catch. Maybe just use if-else here
+            except Exception as e:
                 logging.warning(f"Fetching data failed. {e}. Fallback to current forecast data.")
                 preseason_event_lead_time_0 = None
         else:
