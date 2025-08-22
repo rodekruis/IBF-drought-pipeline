@@ -263,7 +263,6 @@ class Load:
         """Send drought forecast data to IBF API"""
 
         country = forecast_data.country
-        #trigger_on_lead_time = self.settings.get_country_setting( country, "trigger-on-lead-time"    )
         admin_levels = self.settings.get_country_setting(
             country, "admin-levels"
             )
@@ -314,7 +313,7 @@ class Load:
                     if climate_region_name.lower().split('_')[0] == 'national':
                         event_name = f"{season_name}_National"
                     else:
-                        event_name = (f"{climate_region_name} {season_name}_{climate_region_name}")
+                        event_name = (f"{season_name}_{climate_region_name}")
                     # NOTE: exposure data is updated with new data during pre-season and not updated during the season
                     preseason_event, forecast_data_to_send = self.__fetch_or_fallback(
                         climate_region_code,
