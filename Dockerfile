@@ -6,7 +6,7 @@ RUN apt-get update && \
 RUN deps='curl gnupg gnupg2' && \
 	apt-get update && \
 	apt-get install -y $deps
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
+RUN curl -sS https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor | tee /etc/apt/trusted.gpg.d/microsoft.gpg && \
 	curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
 	apt-get update && \
 	ACCEPT_EULA=Y apt-get install -y msodbcsql18
