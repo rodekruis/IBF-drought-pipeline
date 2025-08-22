@@ -21,7 +21,6 @@ droughts:
  
 
 auxiliary:
-  #worldpop_url: https://data.worldpop.org/GIS/Population/Global_2021_2022_1km_UNadj/constrained/2022
   worldpop_url: https://data.worldpop.org/GIS/Population/Global_2000_2020_Constrained/2020/maxar_v1/
 
 databases:
@@ -78,7 +77,6 @@ countries:
   - name: LSO
     admin-levels: 
       - 1
-    trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
@@ -121,7 +119,6 @@ countries:
   - name: UGA
     admin-levels:
       - 2
-    #trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
@@ -164,7 +161,6 @@ countries:
   - name: ETH
     admin-levels:
       - 2
-    #trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
@@ -295,7 +291,6 @@ countries:
   - name: ZWE
     admin-levels:
       - 1
-    trigger-on-lead-time: 3 # number of months to trigger alert
     pipeline-will-trigger-portal: disable
     classify-alert-on: disable
     alert-on-minimum-probability:
