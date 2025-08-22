@@ -546,11 +546,7 @@ class Extract:
             ) as dst:
                 dst.write(data, 1)
 
-            # Download admin boundaries from  Natural Earth
-            url = "https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip" #TODO: pull country shapefile from IBF API instead
-            admin0 = gpd.read_file(url)
-            admin_gdf=admin0.query("ADM0_A3 == @country")
-            admin_gdf = admin_gdf.to_crs('EPSG:4326')  # Ensure CRS matches raster
+            admin_gdf = self.load.get_adm_boundaries(country,1)
 
             # Clip using rasterio.mask
             with rasterio.open(temp_output) as src:
