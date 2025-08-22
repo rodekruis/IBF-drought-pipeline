@@ -43,8 +43,8 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast_3m
-      trigger-on-minimum-probability: 0.25 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.1 
+      trigger-on-minimum-probability: 0.4
+      trigger-on-minimum-admin-area-in-drought-extent: 0.4
       tercile_treshold: 0.33
     climate_region:
       - name: National
@@ -87,8 +87,8 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast_3m
-      trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons 
+      trigger-on-minimum-probability: 0.4 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.4 #for drought extent(grid) overlap with  admin polygons 
       tercile_treshold: 0.33
     climate_region:
       - name: National
@@ -130,8 +130,8 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons
+      trigger-on-minimum-probability: 0.4 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.4 #for drought extent(grid) overlap with  admin polygons
       tercile_treshold: 0.33 
     climate_region:
       - name: National
@@ -173,8 +173,8 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast_3m
-      trigger-on-minimum-probability: 0.3 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.1 #for drought extent(grid) overlap with  admin polygons
+      trigger-on-minimum-probability: 0.4 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.4 #for drought extent(grid) overlap with  admin polygons
       tercile_treshold: 0.33 
     climate_region:
       - name: Meher
@@ -304,8 +304,8 @@ countries:
       max: 0.85
     trigger_model: 
       model: seasonal_rainfall_forecast
-      trigger-on-minimum-probability: 0.6 # based on ensamble member probability compared against lower tercile 
-      trigger-on-minimum-admin-area-in-drought-extent: 0.5 #for drought extent(grid) overlap with  admin polygons 
+      trigger-on-minimum-probability: 0.4 # based on ensamble member probability compared against lower tercile 
+      trigger-on-minimum-admin-area-in-drought-extent: 0.4 #for drought extent(grid) overlap with  admin polygons 
       tercile_treshold: 0.33
     climate_region:
       - name: National
