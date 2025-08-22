@@ -220,9 +220,8 @@ Example:
 ```yaml
 trigger_model:
   model: seasonal_rainfall_forecast
-  trigger-on-minimum-probability: 0.6
-  trigger-on-minimum-probability-drought-extent: 0.6
-  trigger-on-minimum-admin-area-in-drought-extent: 0.5
+  trigger-on-minimum-probability: 0.4
+  trigger-on-minimum-admin-area-in-drought-extent: 0.4
 ```
 
 **Parameters:**
