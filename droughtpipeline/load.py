@@ -5,6 +5,7 @@ import copy
 import time
 import os
 import json
+from typing import Any
 import cdsapi  
 from droughtpipeline.secrets import Secrets
 from droughtpipeline.settings import Settings
@@ -672,29 +673,62 @@ class Load:
                     f"File {blob_path} not found in Azure Blob Storage"
                 )
 
-
-    def download_ecmwf_forecast(self, country, data_dir, current_year, current_month):
-        """Download ECMWF seasonal hindcast data for historical period
-        Args:
-            country (str): Country name
-            data_dir (str): Directory to save data
-            current_year (int): Current year
-            current_month (int): Current month
-        """   
-        gdf=self.get_adm_boundaries(country,1)
-
+    def _find_bounds(self, country: str): 
+        """Find bounding box of country admin level 1 boundaries"""
+        gdf = self.get_adm_boundaries(country, 1)
         min_x, min_y, max_x, max_y = gdf.total_bounds
-        
+        return min_x, min_y, max_x, max_y
+    
+    def request_ecmwf_data(self, request: dict[str, Any], target: str):
+        """Make request to ECMWF CDS API
+        """
         KEY = os.getenv('CDSAPI_KEY')
         URL = 'https://cds.climate.copernicus.eu/api'
-
         c = cdsapi.Client(url=URL, 
                           key=KEY, 
                           wait_until_complete=False, 
                           delete=False)
 
-        # Forecast data request
+        # ECMWF data request
         dataset = 'seasonal-monthly-single-levels'
+        c.retrieve(dataset, request, target)
+
+    def download_ecmwf_hindcast(self, data_dir: str, country: str, year_start: int = 1991, year_end: int = 2020):
+        """Download ECMWF seasonal hindcast data for historical period
+        Args:
+            country (str): Country name
+            data_dir (str): Directory to save data
+        """
+        min_x, min_y, max_x, max_y = self._find_bounds(country)
+        request = {
+            "originating_centre": "ecmwf",
+            "system": "51",
+            "variable": ["total_precipitation"],
+            "product_type": ["monthly_mean"],
+            "year": [
+                str(y) for y in range(1991, 2021)
+            ],
+            "month": ["03"],
+            "leadtime_month": [
+                str(m) for m in range(1,7)
+            ],
+            "data_format": "grib",
+            "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
+        }
+        # target = f'{data_dir}/ecmwf_seas5_hindcast_monthly_tp.grib'
+        self.request_ecmwf_data(request, data_dir)
+
+    def download_ecmwf_forecast(self, data_dir, country, current_year, current_month):
+        """Download ECMWF seasonal forecast data
+        Args:
+            country (str): Country name
+            data_dir (str): Directory to save data
+            current_year (int): Current year
+            current_month (int): Current month
+        """
+        min_x, min_y, max_x, max_y = self._find_bounds(country)
+
+        # Forecast data request
         request = {
             "originating_centre": "ecmwf",
             "system": "51",
@@ -703,54 +737,13 @@ class Load:
             "year": [current_year],
             "month": [current_month],
             "leadtime_month": [
-                "1",
-                "2",
-                "3",
-                "4",
-                "5",
-                "6"
+                str(m) for m in range(1,7)
             ],
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
         }
         target = f'{data_dir}/ecmwf_seas5_forecast_monthly_tp.grib'
-        c.retrieve(dataset, request, target)
-
-        sleep = 30
-        time.sleep(sleep)
-        
-        request = {
-            "originating_centre": "ecmwf",
-            "system": "51",
-            "variable": ["total_precipitation"],
-            "product_type": ["monthly_mean"],
-            "year": [
-                "1991", "1992","1993", 
-                "1994", "1995","1996", 
-                "1997", "1998","1999", 
-                "2000", "2001","2002", 
-                "2003", "2004","2005", 
-                "2006", "2007","2008", 
-                "2009", "2010","2011", 
-                "2012", "2013","2014", 
-                "2015", "2016","2017", 
-                "2018", "2019","2020"
-            ],
-            "month": ["03"],
-            "leadtime_month": [
-                "1",
-                "2",
-                "3",
-                "4",
-                "5",
-                "6"
-            ],
-            "data_format": "grib",
-            "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
-        }
-        target = f'{data_dir}/ecmwf_seas5_hindcast_monthly_tp.grib'
-        c.retrieve(dataset, request, target)
-
+        self.request_ecmwf_data(request, target)
 
     def __look_up_dates(
             self, 

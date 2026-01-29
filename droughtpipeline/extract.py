@@ -7,7 +7,10 @@ from droughtpipeline.data import (
     RainfallClimateRegionDataUnit,
 )
 from droughtpipeline.load import Load
-from droughtpipeline.utils import replace_year_month
+from droughtpipeline.utils import (
+    replace_year_month, 
+    convert_to_mm_per_month
+)
 import os
 from datetime import datetime
 import geopandas as gpd
@@ -30,43 +33,43 @@ warnings.simplefilter("ignore", category=RuntimeWarning)
 supported_sources = ["ECMWF"]
 
 
-def slice_netcdf_file(nc_file: xr.Dataset, country_bounds: list):
-    """Slice the netcdf file to the bounding box"""
-    min_lon = country_bounds[0]  # Minimum longitude
-    max_lon = country_bounds[2]  # Maximum longitude
-    min_lat = country_bounds[1]  # Minimum latitude
-    max_lat = country_bounds[3]  # Maximum latitude
-    var_data = nc_file.sel(lon=slice(min_lon, max_lon), lat=slice(max_lat, min_lat))
-    return var_data
+# def slice_netcdf_file(nc_file: xr.Dataset, country_bounds: list):
+#     """Slice the netcdf file to the bounding box"""
+#     min_lon = country_bounds[0]  # Minimum longitude
+#     max_lon = country_bounds[2]  # Maximum longitude
+#     min_lat = country_bounds[1]  # Minimum latitude
+#     max_lat = country_bounds[3]  # Maximum latitude
+#     var_data = nc_file.sel(lon=slice(min_lon, max_lon), lat=slice(max_lat, min_lat))
+#     return var_data
 
 
-def convert_to_mm_per_month(hindcast, forecast):
-    """
-    Reads a file and returns the raster dataset converted to mm/month from m/s.
-    """
-    # Load hindcast dataset
-    ds_hindcast = xr.open_dataset(hindcast, engine='cfgrib', backend_kwargs={'time_dims': ('forecastMonth', 'time')})
-    ds_forecast = xr.open_dataset(forecast, engine='cfgrib', backend_kwargs={'time_dims': ('forecastMonth', 'time')})
+# def convert_to_mm_per_month(hindcast, forecast):
+#     """
+#     Reads a file and returns the raster dataset converted to mm/month from m/s.
+#     """
+#     # Load hindcast dataset
+#     ds_hindcast = xr.open_dataset(hindcast, engine='cfgrib', backend_kwargs={'time_dims': ('forecastMonth', 'time')})
+#     ds_forecast = xr.open_dataset(forecast, engine='cfgrib', backend_kwargs={'time_dims': ('forecastMonth', 'time')})
     
       
-    # Get the month and year from the dataset
-    month = ds_hindcast.time.dt.month.values[0]
-    year = ds_hindcast.time.dt.year.values[0]
+#     # Get the month and year from the dataset
+#     month = ds_hindcast.time.dt.month.values[0]
+#     year = ds_hindcast.time.dt.year.values[0]
     
-    # Calculate the number of days in each forecast month
-    #days_in_month = [monthrange(year, month + fcmonth - 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
+#     # Calculate the number of days in each forecast month
+#     #days_in_month = [monthrange(year, month + fcmonth - 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
 
-    days_in_month = [monthrange(year, ((month + fcmonth - 1) - 1) % 12 + 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
+#     days_in_month = [monthrange(year, ((month + fcmonth - 1) - 1) % 12 + 1)[1] for fcmonth in ds_hindcast.forecastMonth.values]
     
-    # Assign the number of days as a coordinate to the dataset
-    ds = ds_hindcast.assign_coords(numdays=('forecastMonth', days_in_month))
-    ds2 = ds_forecast.assign_coords(numdays=('forecastMonth', days_in_month))
+#     # Assign the number of days as a coordinate to the dataset
+#     ds = ds_hindcast.assign_coords(numdays=('forecastMonth', days_in_month))
+#     ds2 = ds_forecast.assign_coords(numdays=('forecastMonth', days_in_month))
     
-    # Convert the precipitation rate from m/s to mm/month
-    ds = ds * ds.numdays * 24 * 60 * 60 * 1000
-    ds2 = ds2 * ds2.numdays * 24 * 60 * 60 * 1000
+#     # Convert the precipitation rate from m/s to mm/month
+#     ds = ds * ds.numdays * 24 * 60 * 60 * 1000
+#     ds2 = ds2 * ds2.numdays * 24 * 60 * 60 * 1000
     
-    return ds,ds2
+#     return ds,ds2
 
 
 class Extract:
@@ -153,13 +156,15 @@ class Extract:
         
         current_year = datestart.strftime('%Y')
         current_month = datestart.strftime("%m")
+
         
         # Download netcdf file
-        logging.info(f"downloading ecmwf data ")
+        filename = "ecmwf_seas5_forecast_monthly_tp.grib"
+        logging.info(f"downloading ecmwf data {filename}")
         try:
             self.load.download_ecmwf_forecast(
                 country,
-                self.inputPathGrid,
+                f'{self.inputPathGrid}/{filename}',
                 current_year, 
                 current_month,
             )
@@ -279,7 +284,8 @@ class Extract:
                 trigger_on_minimum_probability = 0.3
         
         logging.info("Extract seasonal forecast for each climate region") 
-        ds_hindcast,ds_forecast=convert_to_mm_per_month(f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
+        #ds_hindcast,
+        ds_forecast=convert_to_mm_per_month(#f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
                                                 f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib')
         '''  
         ds_hindcast = xr.open_dataset(
@@ -311,11 +317,11 @@ class Extract:
             .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
             .sum()  # Calculate mean for the rolling window
         )
-        ds_hindcast_3m = (
-            ds_hindcast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
-            .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
-            .sum()  # Calculate mean for the rolling window
-        )
+        # ds_hindcast_3m = (
+        #     ds_hindcast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
+        #     .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
+        #     .sum()  # Calculate mean for the rolling window
+        # )
         
         if triggermodel=='seasonal_rainfall_forecast':
             trigger_df= self.compare_forecast_to_historical_lower_tercile(
