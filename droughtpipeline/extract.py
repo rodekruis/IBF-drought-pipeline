@@ -158,20 +158,19 @@ class Extract:
         current_month = datestart.strftime("%m")
 
         
-        # Download netcdf file
-        filename = "ecmwf_seas5_forecast_monthly_tp.grib"
-        logging.info(f"downloading ecmwf data {filename}")
-        try:
-            self.load.download_ecmwf_forecast(
-                country,
-                f'{self.inputPathGrid}/{filename}',
-                current_year, 
-                current_month,
-            )
-        except FileNotFoundError:
-            logging.warning(
-                f"downloading ECMWF file failed"
-            )     
+        # # Download netcdf file
+        # logging.info(f"downloading ecmwf data ")
+        # try:
+        #     self.load.download_ecmwf_forecast(
+        #         country,
+        #         self.inputPathGrid,
+        #         current_year, 
+        #         current_month,
+        #     )
+        # except FileNotFoundError:
+        #     logging.warning(
+        #         f"downloading ECMWF file failed"
+        #     )     
 
         logging.info("finished downloading ECMWF data")
 
@@ -255,9 +254,160 @@ class Extract:
 
         return subset
    
+    def process_hindcast_data(self, country: str, triggermodel: str, datestart: datetime = None):
+        """
+        Process hindcast data and store in CosmosDB for reuse
+        
+        Parameters:
+            country (str): Country code
+            triggermodel (str): Trigger model type
+            datestart (datetime): Start date for processing
+            
+        Returns:
+            xarray.Dataset: Processed hindcast mean data
+        """
+        # Try to retrieve existing hindcast data from CosmosDB
+        hindcast_cached = self.load.get_hindcast_data(country)
+
+        if hindcast_cached is not None:
+            logging.info(f"Using cached hindcast data from CosmosDB for country {country}")
+            # If loader returned an xarray Dataset, return it directly
+            if isinstance(hindcast_cached, xr.Dataset):
+                return hindcast_cached
+            # Otherwise continue and recompute (loader may return legacy dict)
+        
+        logging.info(f"Computing hindcast data for country {country}")
+        
+        # Load and process hindcast data
+        ds_hindcast, _ = convert_to_mm_per_month(
+            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
+            f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib'
+        )
+        
+        # Process based on trigger model
+        if triggermodel == 'seasonal_rainfall_forecast':
+            tprate_hindcast_mean = ds_hindcast.mean(['number', 'time'])
+        elif triggermodel == 'seasonal_rainfall_forecast_3m':
+            ds_hindcast_3m = (
+                ds_hindcast.shift(forecastMonth=-2)
+                .rolling(forecastMonth=3, min_periods=1)
+                .sum()
+            )
+            tprate_hindcast_mean = ds_hindcast_3m.mean(['number', 'time'])
+        else:
+            raise ValueError(f"Trigger model {triggermodel} not supported")
+        
+        # Convert to dictionary for storage in CosmosDB
+        hindcast_dict = {}
+        for month in tprate_hindcast_mean.forecastMonth.values:
+            month_data = tprate_hindcast_mean.sel(forecastMonth=month)
+            # Transform to mapping where each key is a point "lat,lon" and value is the grid value
+            lat_vals = month_data.latitude.values
+            lon_vals = month_data.longitude.values
+            arr = month_data['tprate'].values
+            point_map = {}
+            for i, latv in enumerate(lat_vals):
+                for j, lonv in enumerate(lon_vals):
+                    try:
+                        v = arr[i, j]
+                        if np.isnan(v):
+                            v_out = None
+                        else:
+                            v_out = float(v)
+                    except Exception:
+                        v_out = None
+                    key = f"{float(latv):.6f},{float(lonv):.6f}"
+                    point_map[key] = v_out
+
+            hindcast_dict[int(month)] = point_map
+        
+        # Save to CosmosDB as per-point documents for future runs
+        self.load.save_hindcast_data(country, hindcast_dict, datestart)
+        logging.info(f"Saved hindcast data to CosmosDB for country {country}")
+        
+        return tprate_hindcast_mean
+    
+    def process_forecast_data(self, country: str, triggermodel: str, 
+                             tprate_hindcast_mean, datestart: datetime = None):
+        """
+        Process forecast data using hindcast mean
+        
+        Parameters:
+            country (str): Country code
+            triggermodel (str): Trigger model type
+            tprate_hindcast_mean: Hindcast mean data
+            datestart (datetime): Start date for processing
+            
+        Returns:
+            tuple: (forecast data, anomalies, valid_time, numdays, trigger_df)
+        """
+        logging.info(f"Processing forecast data for country {country}")
+        
+        current_year = datestart.year
+        current_month = datestart.month
+        
+        # Load forecast data
+        _, ds_forecast = convert_to_mm_per_month(
+            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
+            f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib'
+        )
+        
+        # Process based on trigger model
+        if triggermodel == 'seasonal_rainfall_forecast':
+            tprate_forecast = ds_forecast['tprate']
+            
+            # Convert lead time into valid dates
+            valid_time = [
+                pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
+                for fcmonth in tprate_forecast.forecastMonth
+            ]
+            
+            anomalies = ds_forecast['tprate'] - tprate_hindcast_mean['tprate']
+            
+            # Convert precipitation rates to accumulation
+            numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
+            anomalies = anomalies.assign_coords(valid_time=('forecastMonth', valid_time))
+            anomalies = anomalies.assign_coords(numdays=('forecastMonth', numdays))
+            anomalies_tp = anomalies
+            anomalies_tp.attrs['units'] = 'mm'
+            anomalies_tp.attrs['long_name'] = 'Total precipitation anomaly'
+            
+        elif triggermodel == 'seasonal_rainfall_forecast_3m':
+            seas5_forecast_3m = (
+                ds_forecast.shift(forecastMonth=-2)
+                .rolling(forecastMonth=3, min_periods=1)
+                .sum()
+            )
+            
+            tprate_forecast = seas5_forecast_3m['tprate']
+            anomalies = seas5_forecast_3m.tprate - tprate_hindcast_mean.tprate
+            
+            # Calculate number of days for each forecast month
+            vt = [pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth+1) 
+                  for fcmonth in tprate_forecast.forecastMonth]
+            vts = [[thisvt+relativedelta(months=-mm) for mm in range(3)] for thisvt in vt]
+            numdays = [np.sum([monthrange(dd.year, dd.month)[1] for dd in d3]) for d3 in vts]
+            
+            # Convert lead time into valid dates
+            valid_time = [
+                pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
+                for fcmonth in tprate_forecast.forecastMonth
+            ]
+            
+            anomalies = anomalies.assign_coords(numdays=('forecastMonth', numdays))
+            anomalies = anomalies.assign_coords(valid_time=('forecastMonth', valid_time))
+            anomalies_tp = anomalies
+            anomalies_tp.attrs['units'] = 'mm'
+            anomalies_tp.attrs['long_name'] = 'SEAS5 3-monthly total precipitation ensemble mean anomaly for 6 lead-time months'
+        else:
+            raise ValueError(f"Trigger model {triggermodel} not supported")
+        
+        return tprate_forecast, anomalies_tp, valid_time, numdays
+   
     def extract_ecmwf_data(self, country: str = None, debug: bool = False, datestart: datetime = None):
         """
-        extract seasonal rainfall forecastand extract it per climate region
+        Extract seasonal rainfall forecast and extract it per climate region
+        Refactored to separate hindcast and forecast processing
         """
         if country is None:
             country = self.country   
@@ -268,123 +418,75 @@ class Extract:
         
         ### admin_level 
         logging.info(f"Extract ecmwf data for country {country}")
-        admin_level_= self.settings.get_country_setting(country, "admin-levels")
-        triggermodel=self.settings.get_country_setting(country, "trigger_model")['model']
+        admin_level_ = self.settings.get_country_setting(country, "admin-levels")
+        triggermodel = self.settings.get_country_setting(country, "trigger_model")['model']
         trigger_on_minimum_probability = self.settings.get_country_setting(
             country, "trigger_model")['trigger-on-minimum-probability']
         trigger_on_minimum_admin_area_in_drought_extent = self.settings.get_country_setting(
             country, "trigger_model")['trigger-on-minimum-admin-area-in-drought-extent']     
         
         if debug:
-            scenario = os.getenv("SCENARIO", "Forecast") # TODO: pull scenario debug to a proper scenario script
+            scenario = os.getenv("SCENARIO", "Forecast")
             logging.info(f"scenario: {scenario}")
             if scenario == "NoWarning":
                 trigger_on_minimum_probability = 0.99
             elif scenario == "Warning":
                 trigger_on_minimum_probability = 0.3
         
-        logging.info("Extract seasonal forecast for each climate region") 
-        #ds_hindcast,
-        ds_forecast=convert_to_mm_per_month(#f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
-                                                f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib')
-        '''  
-        ds_hindcast = xr.open_dataset(
-            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib',
-            engine='cfgrib',
-            backend_kwargs={'time_dims': ('forecastMonth', 'time')}
-        )
-
-        ds_hindcast['tprate'] = ds_hindcast['tprate'] * 86400 * 1000
-          
-        # Load forecast data
-        ds_forecast = xr.open_dataset(
-            f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib',
-            engine='cfgrib',
-            backend_kwargs={'time_dims': ('forecastMonth', 'time')}
-        )
-
-        # Convert tprate from m/s to mm/day
-        ds_forecast['tprate'] = ds_forecast['tprate'] * 86400 * 1000
-        tprate = ds_forecast['tprate'] 
-   
-        numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
-        #ds_forecast['tprate'].attrs['units'] = 'mm/day'
-        '''
-
-        ########## for 3 month rolling mean
-        seas5_forecast_3m = (
-            ds_forecast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
-            .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
-            .sum()  # Calculate mean for the rolling window
-        )
-        # ds_hindcast_3m = (
-        #     ds_hindcast.shift(forecastMonth=-2)  # Shift data by 2 steps forward
-        #     .rolling(forecastMonth=3, min_periods=1)  # Apply rolling
-        #     .sum()  # Calculate mean for the rolling window
-        # )
+        # Step 1: Process hindcast data (retrieve from CosmosDB or compute)
+        logging.info("Processing hindcast data...")
+        tprate_hindcast_mean = self.process_hindcast_data(country, triggermodel, datestart)
         
-        if triggermodel=='seasonal_rainfall_forecast':
-            trigger_df= self.compare_forecast_to_historical_lower_tercile(
-                country,
-                ds_hindcast, 
-                ds_forecast,
-                trigger_on_minimum_probability)
-            tprate_forecast = ds_forecast['tprate'] 
-            tprate_hindcast = ds_hindcast['tprate']  
-            tprate_hindcast_mean = ds_hindcast.mean(['number','time'])
-            
-            # Convert lead time into valid dates
-            valid_time = [
-                pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
-                for fcmonth in tprate_forecast.forecastMonth
-            ]
-            anomalies = ds_forecast['tprate'] - tprate_hindcast_mean
-
-            # Convert precipitation rates to accumulation
-            numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
-            anomalies = anomalies.assign_coords(valid_time=('forecastMonth', valid_time))
-            anomalies = anomalies.assign_coords(numdays=('forecastMonth', numdays))
-            anomalies_tp = anomalies #* anomalies.numdays * 24 * 60 * 60 * 1000
-            anomalies_tp.attrs['units'] = 'mm'
-            anomalies_tp.attrs['long_name'] = 'Total precipitation anomaly'
-
-        elif triggermodel=='seasonal_rainfall_forecast_3m':
-            trigger_df= self.compare_forecast_to_historical_lower_tercile(
-                country,
-                ds_hindcast_3m, 
-                seas5_forecast_3m,
-                trigger_on_minimum_probability)
-            tprate_forecast = seas5_forecast_3m['tprate']
-            tprate_hindcast = ds_hindcast_3m['tprate']  
-            tprate_hindcast_mean = ds_hindcast_3m.mean(['number','time'])
-            anomalies = seas5_forecast_3m.tprate - tprate_hindcast_mean.tprate  
-            
-            # Calculate number of days for each forecast month and add it as coordinate information to the data array
-            vt = [ pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth+1) for fcmonth in tprate_forecast.forecastMonth]
-            vts = [[thisvt+relativedelta(months=-mm) for mm in range(3)] for thisvt in vt]
-            numdays = [np.sum([monthrange(dd.year,dd.month)[1] for dd in d3]) for d3 in vts]
-            
-            # Convert lead time into valid dates
-            valid_time = [
-                pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
-                for fcmonth in tprate_forecast.forecastMonth
-            ]
-            anomalies = anomalies.assign_coords(numdays=('forecastMonth',numdays))                
-            anomalies = anomalies.assign_coords(valid_time=('forecastMonth',valid_time))  
-            anomalies_tp = anomalies #* anomalies.numdays * 24 * 60 * 60 * 1000
-            anomalies_tp.attrs['units'] = 'mm'
-            anomalies_tp.attrs['long_name'] = 'SEAS5 3-monthly total precipitation ensemble mean anomaly for 6 lead-time months'            
-
+        # If hindcast data was retrieved from cache, we need to convert it back
+        # For now, we'll compute it fresh each time (can optimize later)
+        # Load hindcast for processing
+        ds_hindcast, ds_forecast = convert_to_mm_per_month(
+            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
+            f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib'
+        )
+        
+        if triggermodel == 'seasonal_rainfall_forecast':
+            tprate_hindcast = ds_hindcast['tprate']
+            tprate_hindcast_mean = ds_hindcast.mean(['number', 'time'])
+        elif triggermodel == 'seasonal_rainfall_forecast_3m':
+            ds_hindcast_3m = (
+                ds_hindcast.shift(forecastMonth=-2)
+                .rolling(forecastMonth=3, min_periods=1)
+                .sum()
+            )
+            tprate_hindcast = ds_hindcast_3m['tprate']
+            tprate_hindcast_mean = ds_hindcast_3m.mean(['number', 'time'])
         else:
             raise ValueError(f"Trigger model {triggermodel} not supported")
-
-        ########################### for rainfall layer in IBF portal
         
+        logging.info(f"tprate_hindcast_mean computed: {tprate_hindcast_mean}")
+        
+        # Step 2: Process forecast data
+        logging.info("Processing forecast data...")
+        tprate_forecast, anomalies_tp, valid_time, numdays = self.process_forecast_data(
+            country, triggermodel, tprate_hindcast_mean, datestart
+        )
+        
+        # Step 3: Compare forecast to historical tercile
+        logging.info("Comparing forecast to historical lower tercile...")
+        trigger_df = self.compare_forecast_to_historical_lower_tercile(
+            country,
+            ds_hindcast if triggermodel == 'seasonal_rainfall_forecast' else ds_hindcast_3m, 
+            ds_forecast if triggermodel == 'seasonal_rainfall_forecast' else (
+                ds_forecast.shift(forecastMonth=-2).rolling(forecastMonth=3, min_periods=1).sum()
+            ),
+            trigger_on_minimum_probability
+        )
+        
+        ########################### Rainfall layer for IBF portal
+        logging.info("Preparing rainfall forecast mean for IBF portal...")
         tprate_forecast_mean = tprate_forecast.mean(['number'])
         tprate_forecast_mean = tprate_forecast_mean.assign_coords(valid_time=('forecastMonth', valid_time))
         tprate_forecast_mean = tprate_forecast_mean.assign_coords(numdays=('forecastMonth', numdays))
         tprate_forecast_mean.attrs['units'] = 'mm'
 
+        # Step 4: Process each climate region
+        logging.info("Processing climate regions...")
         for climateRegion in self.data.threshold_climateregion.get_climate_region_codes():
             pcodes=self.data.threshold_climateregion.get_data_unit(
                 climate_region_code=climateRegion).pcodes

@@ -21,6 +21,8 @@ import urllib.request, json
 from datetime import datetime, timedelta, date
 import azure.cosmos.cosmos_client as cosmos_client
 import logging
+import xarray as xr
+import numpy as np
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import requests
@@ -33,7 +35,8 @@ from azure.core.exceptions import ResourceNotFoundError
 COSMOS_DATA_TYPES = [
     "climate-region",
     "seasonal-rainfall-forecast",
-    'seasonal-rainfall-forecast-climate-region'
+    'seasonal-rainfall-forecast-climate-region',
+    'seasonal-rainfall-hindcast'
 ]
 
 
@@ -868,3 +871,162 @@ class Load:
                 # triggered_lead_times.append(lead_time)
         events = dict(sorted(events.items()))
         return events
+
+    def save_hindcast_data(self, country: str, hindcast_data: dict, timestamp: datetime = datetime.now()):
+        """
+        Save hindcast mean data to CosmosDB for reuse across runs
+        
+        Parameters:
+            country (str): Country code
+            hindcast_data (dict): Dictionary containing hindcast mean data per forecast month
+            timestamp (datetime): Timestamp of the data
+        """
+        # Store as per-month documents containing seasonal_rainfall list
+        client_ = cosmos_client.CosmosClient(
+            self.secrets.get_secret("COSMOS_URL"),
+            {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
+            user_agent="drought-pipeline",
+            user_agent_overwrite=True,
+        )
+        cosmos_db = client_.get_database_client("drought-pipeline")
+        cosmos_container_client = cosmos_db.get_container_client("seasonal-rainfall-hindcast")
+
+        count = 0
+        for month, point_map in hindcast_data.items():
+            try:
+                m = int(month)
+            except Exception:
+                continue
+            seasonal_list = []
+            vals = []
+            for point_key, val in point_map.items():
+                try:
+                    lat_str, lon_str = point_key.split(",")
+                    lat = float(lat_str)
+                    lon = float(lon_str)
+                except Exception:
+                    continue
+                seasonal_list.append({"lat": lat, "lon": lon, "value": (None if val is None else float(val))})
+                if val is not None:
+                    try:
+                        vals.append(float(val))
+                    except Exception:
+                        pass
+
+            seasonal_rainfall_mean = float(sum(vals) / len(vals)) if len(vals) > 0 else None
+            doc_id = f"{timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{m}"
+            record = {
+                "id": doc_id,
+                "country": country,
+                "lead_time": m,
+                "seasonal_rainfall": seasonal_list,
+                "seasonal_rainfall_mean": seasonal_rainfall_mean,
+                "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
+            }
+
+            try:
+                cosmos_container_client.upsert_item(body=record)
+                count += 1
+            except Exception as e:
+                logging.error(f"Failed to upsert hindcast month {m} for {country}: {e}")
+
+        logging.info(f"Upserted {count} per-month hindcast documents for country {country}")
+
+    
+    
+    def get_hindcast_data(self, country: str):
+        """
+        Retrieve hindcast mean data from CosmosDB
+        
+        Parameters:
+            country (str): Country code
+            
+        Returns:
+            dict: Hindcast mean data or None if not found
+        """
+        try:
+            client_ = cosmos_client.CosmosClient(
+                self.secrets.get_secret("COSMOS_URL"),
+                {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
+                user_agent="drought-pipeline",
+                user_agent_overwrite=True,
+            )
+            cosmos_db = client_.get_database_client("drought-pipeline")
+            cosmos_container_client = cosmos_db.get_container_client("seasonal-rainfall-hindcast")
+
+            # fetch all per-month hindcast documents for the country
+            query = f"SELECT * FROM c WHERE c.country = '{country}'"
+            records = list(cosmos_container_client.query_items(query=query, enable_cross_partition_query=False))
+
+            if not records:
+                logging.info(f"No hindcast data found for country {country}")
+                return None
+
+            # collect available lead_times and lat/lon points
+            lead_times = []
+            lat_set = set()
+            lon_set = set()
+            month_records = {}
+
+            for rec in records:
+                seasonal = rec.get("seasonal_rainfall")
+                lead_time = rec.get("lead_time")
+                if seasonal is None or lead_time is None:
+                    continue
+                m = int(lead_time)
+                lead_times.append(m)
+                month_records[m] = seasonal
+                for pt in seasonal:
+                    try:
+                        lat_set.add(float(pt.get("lat")))
+                        lon_set.add(float(pt.get("lon")))
+                    except Exception:
+                        continue
+
+            if not month_records:
+                logging.info(f"No per-month hindcast documents found for country {country}")
+                return None
+
+            months = sorted(set(lead_times))
+            lat_vals = sorted(lat_set)
+            lon_vals = sorted(lon_set)
+
+            if len(lat_vals) == 0 or len(lon_vals) == 0:
+                logging.info(f"No spatial points found in hindcast documents for country {country}")
+                return None
+
+            n_m = len(months)
+            n_lat = len(lat_vals)
+            n_lon = len(lon_vals)
+            data = np.full((n_m, n_lat, n_lon), np.nan, dtype=float)
+
+            lat_index = {v: i for i, v in enumerate(lat_vals)}
+            lon_index = {v: j for j, v in enumerate(lon_vals)}
+
+            for mi, m in enumerate(months):
+                seasonal = month_records.get(m, [])
+                for pt in seasonal:
+                    try:
+                        lat = float(pt.get("lat"))
+                        lon = float(pt.get("lon"))
+                        v = pt.get("value")
+                        i = lat_index.get(lat)
+                        j = lon_index.get(lon)
+                        if i is None or j is None:
+                            continue
+                        data[mi, i, j] = np.nan if v is None else float(v)
+                    except Exception:
+                        continue
+
+            da = xr.DataArray(
+                data,
+                coords={"forecastMonth": months, "latitude": lat_vals, "longitude": lon_vals},
+                dims=("forecastMonth", "latitude", "longitude"),
+            )
+            ds = xr.Dataset({"tprate": da})
+
+            logging.info(f"Successfully reconstructed hindcast xarray Dataset for country {country}")
+            return ds
+        except Exception as e:
+            logging.error(f"Error retrieving hindcast data: {e}")
+            return None
