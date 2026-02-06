@@ -78,19 +78,13 @@ def subset_region(ds, region, latname='latitude', lonname='longitude'):
 
 
 def dataarray_to_dict(da: xr.DataArray) -> dict:
-    """Convert a 1-D `xarray.DataArray` (commonly indexed by `forecastMonth`) to a
-    plain Python dict. The returned dict maps forecast month (int) to a small
-    dict containing the value and any extra coordinates (e.g. `numdays`,
-    `surface`).
+    """Convert a 1-D `xarray.DataArray` to a plain Python dict. 
+    The returned dict maps forecast month (int) to a small dict containing
+    the value and any extra coordinates (e.g. `numdays`, `surface`).
 
     Example output:
       {1: {'value': 99.39, 'numdays': 31, 'surface': 0.0}, ...}
-
-    This function is intentionally conservative: missing or NaN values are
-    converted to `None` and numeric numpy types are converted to native Python
-    types so the result is JSON-serializable.
     """
-    # Aim to match: .drop_vars(['quantile']).to_series().to_dict()
     # If a Dataset is passed, pick the first data variable
     if isinstance(da, xr.Dataset):
         first_var = list(da.data_vars)[0]

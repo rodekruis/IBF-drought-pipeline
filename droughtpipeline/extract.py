@@ -9,7 +9,8 @@ from droughtpipeline.data import (
 from droughtpipeline.load import Load
 from droughtpipeline.utils import (
     replace_year_month, 
-    convert_to_mm_per_month
+    convert_to_mm_per_month,
+    get_extent_shp,
 )
 import os
 from datetime import datetime
@@ -157,7 +158,6 @@ class Extract:
         current_year = datestart.strftime('%Y')
         current_month = datestart.strftime("%m")
 
-        
         # # Download netcdf file
         # logging.info(f"downloading ecmwf data ")
         # try:
@@ -253,102 +253,26 @@ class Extract:
             subset = subset.sortby(subset[lonname])
 
         return subset
-   
-    def process_hindcast_data(self, country: str, triggermodel: str, datestart: datetime = None):
-        """
-        Process hindcast data and store in CosmosDB for reuse
-        
-        Parameters:
-            country (str): Country code
-            triggermodel (str): Trigger model type
-            datestart (datetime): Start date for processing
-            
-        Returns:
-            xarray.Dataset: Processed hindcast mean data
-        """
-        # Try to retrieve existing hindcast data from CosmosDB
-        hindcast_cached = self.load.get_hindcast_data(country)
-
-        if hindcast_cached is not None:
-            logging.info(f"Using cached hindcast data from CosmosDB for country {country}")
-            # If loader returned an xarray Dataset, return it directly
-            if isinstance(hindcast_cached, xr.Dataset):
-                return hindcast_cached
-            # Otherwise continue and recompute (loader may return legacy dict)
-        
-        logging.info(f"Computing hindcast data for country {country}")
-        
-        # Load and process hindcast data
-        ds_hindcast, _ = convert_to_mm_per_month(
-            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
-            f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib'
-        )
-        
-        # Process based on trigger model
-        if triggermodel == 'seasonal_rainfall_forecast':
-            tprate_hindcast_mean = ds_hindcast.mean(['number', 'time'])
-        elif triggermodel == 'seasonal_rainfall_forecast_3m':
-            ds_hindcast_3m = (
-                ds_hindcast.shift(forecastMonth=-2)
-                .rolling(forecastMonth=3, min_periods=1)
-                .sum()
-            )
-            tprate_hindcast_mean = ds_hindcast_3m.mean(['number', 'time'])
-        else:
-            raise ValueError(f"Trigger model {triggermodel} not supported")
-        
-        # Convert to dictionary for storage in CosmosDB
-        hindcast_dict = {}
-        for month in tprate_hindcast_mean.forecastMonth.values:
-            month_data = tprate_hindcast_mean.sel(forecastMonth=month)
-            # Transform to mapping where each key is a point "lat,lon" and value is the grid value
-            lat_vals = month_data.latitude.values
-            lon_vals = month_data.longitude.values
-            arr = month_data['tprate'].values
-            point_map = {}
-            for i, latv in enumerate(lat_vals):
-                for j, lonv in enumerate(lon_vals):
-                    try:
-                        v = arr[i, j]
-                        if np.isnan(v):
-                            v_out = None
-                        else:
-                            v_out = float(v)
-                    except Exception:
-                        v_out = None
-                    key = f"{float(latv):.6f},{float(lonv):.6f}"
-                    point_map[key] = v_out
-
-            hindcast_dict[int(month)] = point_map
-        
-        # Save to CosmosDB as per-point documents for future runs
-        self.load.save_hindcast_data(country, hindcast_dict, datestart)
-        logging.info(f"Saved hindcast data to CosmosDB for country {country}")
-        
-        return tprate_hindcast_mean
     
-    def process_forecast_data(self, country: str, triggermodel: str, 
-                             tprate_hindcast_mean, datestart: datetime = None):
+
+    def process_forecast_data(self, country: str, triggermodel: str):
         """
         Process forecast data using hindcast mean
         
         Parameters:
             country (str): Country code
             triggermodel (str): Trigger model type
-            tprate_hindcast_mean: Hindcast mean data
-            datestart (datetime): Start date for processing
             
         Returns:
             tuple: (forecast data, anomalies, valid_time, numdays, trigger_df)
         """
         logging.info(f"Processing forecast data for country {country}")
         
-        current_year = datestart.year
-        current_month = datestart.month
-        
+        # Get precalculated thresholds from CosmosDB
+        tprate_hindcast_mean = self.load.get_hindcast_data(country, triggermodel)
+
         # Load forecast data
-        _, ds_forecast = convert_to_mm_per_month(
-            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
+        ds_forecast = convert_to_mm_per_month(
             f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib'
         )
         
@@ -433,49 +357,10 @@ class Extract:
             elif scenario == "Warning":
                 trigger_on_minimum_probability = 0.3
         
-        # Step 1: Process hindcast data (retrieve from CosmosDB or compute)
-        logging.info("Processing hindcast data...")
-        tprate_hindcast_mean = self.process_hindcast_data(country, triggermodel, datestart)
-        
-        # If hindcast data was retrieved from cache, we need to convert it back
-        # For now, we'll compute it fresh each time (can optimize later)
-        # Load hindcast for processing
-        ds_hindcast, ds_forecast = convert_to_mm_per_month(
-            f'{self.inputPathGrid}/ecmwf_seas5_hindcast_monthly_tp.grib', 
-            f'{self.inputPathGrid}/ecmwf_seas5_forecast_monthly_tp.grib'
-        )
-        
-        if triggermodel == 'seasonal_rainfall_forecast':
-            tprate_hindcast = ds_hindcast['tprate']
-            tprate_hindcast_mean = ds_hindcast.mean(['number', 'time'])
-        elif triggermodel == 'seasonal_rainfall_forecast_3m':
-            ds_hindcast_3m = (
-                ds_hindcast.shift(forecastMonth=-2)
-                .rolling(forecastMonth=3, min_periods=1)
-                .sum()
-            )
-            tprate_hindcast = ds_hindcast_3m['tprate']
-            tprate_hindcast_mean = ds_hindcast_3m.mean(['number', 'time'])
-        else:
-            raise ValueError(f"Trigger model {triggermodel} not supported")
-        
-        logging.info(f"tprate_hindcast_mean computed: {tprate_hindcast_mean}")
-        
-        # Step 2: Process forecast data
+        # Process forecast data
         logging.info("Processing forecast data...")
         tprate_forecast, anomalies_tp, valid_time, numdays = self.process_forecast_data(
-            country, triggermodel, tprate_hindcast_mean, datestart
-        )
-        
-        # Step 3: Compare forecast to historical tercile
-        logging.info("Comparing forecast to historical lower tercile...")
-        trigger_df = self.compare_forecast_to_historical_lower_tercile(
-            country,
-            ds_hindcast if triggermodel == 'seasonal_rainfall_forecast' else ds_hindcast_3m, 
-            ds_forecast if triggermodel == 'seasonal_rainfall_forecast' else (
-                ds_forecast.shift(forecastMonth=-2).rolling(forecastMonth=3, min_periods=1).sum()
-            ),
-            trigger_on_minimum_probability
+            country, triggermodel
         )
         
         ########################### Rainfall layer for IBF portal
@@ -501,16 +386,9 @@ class Extract:
             
             if filtered_gdf.empty:
                 raise ValueError(f"No data matching {climateRegion} found in the geofile.")  
-            
-            # Get the extent of the filtered geofile    
-            try:
-                lon_min, lat_min, lon_max, lat_max = filtered_gdf.total_bounds  # [minx, miny, maxx, maxy]
-            except ValueError as e:
-                logging.error(f"Error in extracting extent of the filtered geofile: {e}")
-           
-            sub_region = (lat_max, lon_min, lat_min, lon_max)      
-            
+
             # extract annomalies for a specific region 
+            sub_region = get_extent_shp(filtered_gdf)
             sub_anomalies = self.subset_region(anomalies_tp, sub_region)
 
             # Apply weighted mean for the region
@@ -524,29 +402,20 @@ class Extract:
             anomalies_df = anomalies_df.reset_index()
             anomalies_df['valid_time'] = anomalies_df['valid_time'].dt.strftime('%b, %Y')
 
-            # Calculate thresholds
-            hindcast_sub = self.subset_region(tprate_hindcast, sub_region)
-            hindcast_mean = hindcast_sub.weighted(weights).mean(['latitude', 'longitude'])
-            hindcast_anomalies = hindcast_mean - hindcast_mean.mean(['number', 'time'])
-            hindcast_anomalies_tp = hindcast_anomalies # * hindcast_anomalies.numdays * 24 * 60 * 60 * 1000   
-            thresholds = {
-                'P0': hindcast_anomalies_tp.min(['number', 'time']),
-                'P33': hindcast_anomalies_tp.quantile(1 / 3., ['number', 'time']),
-                'P66': hindcast_anomalies_tp.quantile(2 / 3., ['number', 'time']),
-                'P100': hindcast_anomalies_tp.max(['number', 'time'])
-            }
+            # Get precalculated thresholds from CosmosDB
+            thresholds = self.load.get_threshold_data(country, triggermodel, climateRegion)
 
             # Calculate trigger status
             dftemp=anomalies_df.anomaly        
             dftemp.index=dftemp.index + 1
             forecastQ=dftemp.to_dict(orient='index')
             forecastData={
-                'çlimateRegion':climateRegion,
-                'tercile_lower':thresholds['P33'].drop_vars(['quantile']).to_series().to_dict(),
-                'tercile_upper':thresholds['P66'].drop_vars(['quantile']).to_series().to_dict(),
+                'climateRegion':climateRegion,
+                'tercile_lower':thresholds['P33'],
+                'tercile_upper':thresholds['P66'],
                 'forecast':forecastQ
                 }
-            tercile_seasonal_prc_df = thresholds['P33'].drop_vars(['quantile']).to_dataframe(name='p33')        
+            tercile_seasonal_prc_df = pd.Series(thresholds["P33"], name='p33').rename_axis('forecastMonth').to_frame()
             tercile_seasonal_prc_df = tercile_seasonal_prc_df.reset_index().drop('forecastMonth', axis=1)
             dftemp=anomalies_df.anomaly 
             tercile_seasonal_prc_df['triggerForecast'] = (dftemp.iloc[:, :51].lt(tercile_seasonal_prc_df.iloc[:, 0], axis=0).sum(axis=1) / 51) 
@@ -555,7 +424,9 @@ class Extract:
             data_dict = tercile_seasonal_prc_df[['triggerForecast','triggerStatus']].to_dict(orient="index")  
 
             for month in forecastData['tercile_lower'].keys():
-                lead_time=month-1
+                if not isinstance(month, int):
+                    month_int = int(month)
+                lead_time = month_int - 1
                 lower_tercile_file = f"{self.outputPathGrid}/rlower_tercile_probability_{lead_time}-month_{country}.tif"   
 
                 # Open the TIF file as an xarray object
@@ -581,9 +452,9 @@ class Extract:
                             climate_region_code=climateRegion,
                             climate_region_name=climateRegionName,
                             lead_time=lead_time,# theck this -1
-                            tercile_lower=forecastData['tercile_lower'][month],
-                            tercile_upper=forecastData['tercile_upper'][month],
-                            forecast=forecastData['forecast'][month],
+                            tercile_lower=forecastData['tercile_lower'][month], #data from CosmosDB, keys must be string
+                            tercile_upper=forecastData['tercile_upper'][month], #data from CosmosDB, keys must be string
+                            forecast=forecastData['forecast'][month_int],
                             triggered=triggered,# data_dict[month]['triggerStatus'],
                             likelihood=likelihood,# data_dict[month]['triggerForecast'],
                         )

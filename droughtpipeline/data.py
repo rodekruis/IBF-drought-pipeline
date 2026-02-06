@@ -11,6 +11,8 @@ class AdminDataUnit:
         self.adm_level: int = kwargs.get("adm_level")
         self.pcode: str = kwargs.get("pcode")
 
+# TODO: create data unit for hindcast data
+
 class ClimateRegionDataUnit:
     """Base class for climate region data units"""
 
@@ -33,81 +35,14 @@ class RainfallDataUnit(AdminDataUnit):
         self.trigger: bool = kwargs.get("trigger", None)
 
 
-        if hasattr(self.likelihood, "__iter__"):
-            self.compute_threshold() 
-
-    def compute_threshold(self):
-        """Compute the percentage of forecast values below the tercile lower threshold"""
-        self.likelihood = {}
-        for lead_time in range(1, 7):
-            # Check if necessary data is available
-            if lead_time not in self.rainfall_forecast:
-                print(f"Warning: Missing rainfall forecast data for lead_time {lead_time}") # TODO: replace all print() with logger 
-                continue
-            if lead_time not in self.tercile_lower:
-                print(f"Warning: Missing tercile lower data for lead_time {lead_time}")
-                continue
-
-            forecast_values = np.array(self.rainfall_forecast[lead_time])
-            tercile_lower_value = self.tercile_lower[lead_time]
-
-            # Ensure forecast values are not empty
-            if len(forecast_values) == 0:
-                print(f"Warning: Empty rainfall forecast values for lead_time {lead_time}")
-                continue
-
-            # Compute the percentage of values below the tercile lower threshold
-            percentage_below_tercile_lower = (
-                (forecast_values < tercile_lower_value).sum() / len(forecast_values) 
-            )
-
-            key = f"{lead_time}_month"
-            self.likelihood[key] = int(percentage_below_tercile_lower)
-
 class RainfallClimateRegionDataUnit(ClimateRegionDataUnit):
     """rainfall data unit - climate region"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.lead_time: int = kwargs.get("lead_time", 0)
-        self.tercile_lower: float = kwargs.get("tercile_lower", None)
-        self.tercile_upper: float = kwargs.get("tercile_upper", None)
-        self.rainfall_forecast: List[float]= kwargs.get("rainfall_forecast", None)
-        self.likelihood: float = kwargs.get("likelihood", None)
-        self.trigger: bool = kwargs.get("trigger", None)
+        self.model: str = kwargs.get("model")
+        self.thresholds: dict = kwargs.get("thresholds", None)
 
-        if hasattr(self.likelihood, "__iter__"):
-            self.compute_threshold() 
-
-    def compute_threshold(self):
-        """Compute the percentage of forecast values below the tercile lower threshold"""
-        self.likelihood = {}
-        for lead_time in range(1, 7):
-            # Check if necessary data is available
-            if lead_time not in self.rainfall_forecast:
-                print(f"Warning: Missing rainfall forecast data for lead_time {lead_time}")
-                continue
-            if lead_time not in self.tercile_lower:
-                print(f"Warning: Missing tercile lower data for lead_time {lead_time}")
-                continue
-
-            forecast_values = np.array(self.rainfall_forecast[lead_time])
-            tercile_lower_value = self.tercile_lower[lead_time]
-
-            # Ensure forecast values are not empty
-            if len(forecast_values) == 0:
-                print(f"Warning: Empty rainfall forecast values for lead_time {lead_time}")
-                continue
-
-            # Compute the percentage of values below the tercile lower threshold
-            percentage_below_tercile_lower = (
-                (forecast_values < tercile_lower_value).sum() / len(forecast_values) 
-            )
-
-            key = f"{lead_time}_month"
-            self.likelihood[key] = int(percentage_below_tercile_lower)
-            
- 
 
 class ForecastDataUnit(AdminDataUnit):
     """Drought forecast data unit"""

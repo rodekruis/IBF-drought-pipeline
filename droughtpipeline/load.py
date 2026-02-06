@@ -872,13 +872,14 @@ class Load:
         events = dict(sorted(events.items()))
         return events
 
-    def save_hindcast_data(self, country: str, hindcast_data: dict, timestamp: datetime = datetime.now()):
+    # TODO: to move to save_pipeline_data
+    def save_hindcast_data(self, country: str, hindcast_data: dict, triggermodel: str, timestamp: datetime = datetime.now()):
         """
         Save hindcast mean data to CosmosDB for reuse across runs
         
         Parameters:
             country (str): Country code
-            hindcast_data (dict): Dictionary containing hindcast mean data per forecast month
+            hindcast_data (dict): Dictionary containing hindcast ensemble and mean per forecast month
             timestamp (datetime): Timestamp of the data
         """
         # Store as per-month documents containing seasonal_rainfall list
@@ -898,7 +899,6 @@ class Load:
             except Exception:
                 continue
             seasonal_list = []
-            vals = []
             for point_key, val in point_map.items():
                 try:
                     lat_str, lon_str = point_key.split(",")
@@ -906,21 +906,24 @@ class Load:
                     lon = float(lon_str)
                 except Exception:
                     continue
-                seasonal_list.append({"lat": lat, "lon": lon, "value": (None if val is None else float(val))})
-                if val is not None:
-                    try:
-                        vals.append(float(val))
-                    except Exception:
-                        pass
+                
+                mean_val = val.get('mean')
 
-            seasonal_rainfall_mean = float(sum(vals) / len(vals)) if len(vals) > 0 else None
-            doc_id = f"{timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{m}"
+                seasonal_item = {
+                    "lat": lat, 
+                    "lon": lon, 
+                    "mean": float(mean_val),
+                    }
+
+                seasonal_list.append(seasonal_item)
+
+            doc_id = f"{timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{m}_{triggermodel}"
             record = {
                 "id": doc_id,
                 "country": country,
+                "model": triggermodel,
                 "lead_time": m,
                 "seasonal_rainfall": seasonal_list,
-                "seasonal_rainfall_mean": seasonal_rainfall_mean,
                 "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
             }
 
@@ -932,17 +935,102 @@ class Load:
 
         logging.info(f"Upserted {count} per-month hindcast documents for country {country}")
 
-    
-    
-    def get_hindcast_data(self, country: str):
+    # TODO: to move to save_pipeline_data
+    def save_threshold_data(self, country: str, thresholds: dict, triggermodel: str, climate_region_code: str, timestamp: datetime = datetime.now()):
         """
-        Retrieve hindcast mean data from CosmosDB
-        
+        Save threshold values (e.g. P0, P33, P66, P100) for a climate region to CosmosDB.
+
         Parameters:
             country (str): Country code
-            
+            thresholds (dict): Dict of percentile keys mapping to per-month dicts
+            triggermodel (str): Trigger model name
+            climate_region_code (str): Climate region code
+            timestamp (datetime): Timestamp of the thresholds
+        """
+        client_ = cosmos_client.CosmosClient(
+            self.secrets.get_secret("COSMOS_URL"),
+            {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
+            user_agent="drought-pipeline",
+            user_agent_overwrite=True,
+        )
+        cosmos_db = client_.get_database_client("drought-pipeline")
+
+        # use a dedicated container for thresholds
+        container_name = "seasonal-rainfall-threshold"
+        cosmos_container_client = cosmos_db.get_container_client(container_name)
+
+        doc_id = f"{timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{climate_region_code}_{triggermodel}"
+
+        record = {
+            "id": doc_id,
+            "country": country,
+            "model": triggermodel,
+            "climate_region": str(climate_region_code),
+            "thresholds": thresholds,
+            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+
+        try:
+            cosmos_container_client.upsert_item(body=record)
+            logging.info(f"Upserted thresholds for climate region {climate_region_code} (model {triggermodel})")
+        except Exception as e:
+            logging.error(f"Failed to upsert thresholds for {climate_region_code}: {e}")
+
+    def get_threshold_data(self, country: str, triggermodel: str, climate_region_code: str):
+        """
+        Retrieve the latest thresholds document for a given country, model and climate region
+        and return the `thresholds` dict (same shape as passed to `save_threshold_data`).
+
+        Returns None if no document found.
+        """
+        try:
+            client_ = cosmos_client.CosmosClient(
+                self.secrets.get_secret("COSMOS_URL"),
+                {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
+                user_agent="drought-pipeline",
+                user_agent_overwrite=True,
+            )
+            cosmos_db = client_.get_database_client("drought-pipeline")
+            container_name = "seasonal-rainfall-threshold"
+            cosmos_container_client = cosmos_db.get_container_client(container_name)
+
+            query = (
+                f"SELECT * FROM c WHERE c.country = '{country}' "
+                f"AND c.model = '{triggermodel}' "
+                f"AND c.climate_region = '{climate_region_code}'"
+            )
+            records = list(
+                cosmos_container_client.query_items(query=query, enable_cross_partition_query=False)
+            )
+
+            if not records:
+                logging.info(f"No threshold documents found for {country} {climate_region_code} {triggermodel}")
+                return None
+
+            # pick the latest by timestamp (stored as '%Y-%m-%dT%H:%M:%S')
+            def _ts(rec):
+                try:
+                    return datetime.strptime(rec.get("timestamp", ""), "%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    return datetime.min
+
+            latest = max(records, key=_ts)
+            return latest.get("thresholds")
+
+        except Exception as e:
+            logging.error(f"Error retrieving threshold data: {e}")
+            return None
+
+    def get_hindcast_data(self, country: str, triggermodel: str):
+        """
+        Retrieve hindcast mean data from CosmosDB
+
+        Parameters:
+            country (str): Country code
+            triggermodel (str): Trigger model name
         Returns:
-            dict: Hindcast mean data or None if not found
+            xr.Dataset or None: `ds_mean` xarray Dataset with dimensions
+                (forecastMonth, latitude, longitude), or `None` if not found.
         """
         try:
             client_ = cosmos_client.CosmosClient(
@@ -954,15 +1042,14 @@ class Load:
             cosmos_db = client_.get_database_client("drought-pipeline")
             cosmos_container_client = cosmos_db.get_container_client("seasonal-rainfall-hindcast")
 
-            # fetch all per-month hindcast documents for the country
-            query = f"SELECT * FROM c WHERE c.country = '{country}'"
+            query = f"SELECT * FROM c WHERE c.country = '{country}' and c.model = '{triggermodel}'"
             records = list(cosmos_container_client.query_items(query=query, enable_cross_partition_query=False))
 
             if not records:
                 logging.info(f"No hindcast data found for country {country}")
                 return None
 
-            # collect available lead_times and lat/lon points
+            # Collect spatial coordinates and per-month records
             lead_times = []
             lat_set = set()
             lon_set = set()
@@ -973,9 +1060,13 @@ class Load:
                 lead_time = rec.get("lead_time")
                 if seasonal is None or lead_time is None:
                     continue
-                m = int(lead_time)
+                try:
+                    m = int(lead_time)
+                except Exception:
+                    continue
                 lead_times.append(m)
                 month_records[m] = seasonal
+
                 for pt in seasonal:
                     try:
                         lat_set.add(float(pt.get("lat")))
@@ -998,35 +1089,42 @@ class Load:
             n_m = len(months)
             n_lat = len(lat_vals)
             n_lon = len(lon_vals)
-            data = np.full((n_m, n_lat, n_lon), np.nan, dtype=float)
+
+            # Initialize mean array
+            data_mean = np.full((n_m, n_lat, n_lon), np.nan, dtype=float)
 
             lat_index = {v: i for i, v in enumerate(lat_vals)}
             lon_index = {v: j for j, v in enumerate(lon_vals)}
 
+            # Populate mean array from CosmosDB records
             for mi, m in enumerate(months):
                 seasonal = month_records.get(m, [])
                 for pt in seasonal:
                     try:
                         lat = float(pt.get("lat"))
                         lon = float(pt.get("lon"))
-                        v = pt.get("value")
                         i = lat_index.get(lat)
                         j = lon_index.get(lon)
                         if i is None or j is None:
                             continue
-                        data[mi, i, j] = np.nan if v is None else float(v)
+                        v_mean = pt.get("mean")
+                        if v_mean is not None:
+                            data_mean[mi, i, j] = float(v_mean)
                     except Exception:
                         continue
 
-            da = xr.DataArray(
-                data,
-                coords={"forecastMonth": months, "latitude": lat_vals, "longitude": lon_vals},
-                dims=("forecastMonth", "latitude", "longitude"),
-            )
-            ds = xr.Dataset({"tprate": da})
+            # Create xarray dataset for mean
+            ds_mean = xr.Dataset({
+                "tprate": xr.DataArray(
+                    data_mean,
+                    coords={"forecastMonth": months, "latitude": lat_vals, "longitude": lon_vals},
+                    dims=("forecastMonth", "latitude", "longitude"),
+                )
+            })
 
-            logging.info(f"Successfully reconstructed hindcast xarray Dataset for country {country}")
-            return ds
+            logging.info(f"Successfully reconstructed hindcast mean dataset for country {country}")
+            return ds_mean
+
         except Exception as e:
             logging.error(f"Error retrieving hindcast data: {e}")
             return None
