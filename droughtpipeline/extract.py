@@ -268,8 +268,11 @@ class Extract:
         """
         logging.info(f"Processing forecast data for country {country}")
         
-        # Get precalculated thresholds from CosmosDB
-        tprate_hindcast_mean = self.load.get_hindcast_data(country, triggermodel)
+        # Get precalculated hindcast mean from CosmosDB
+        tprate_hindcast = self.load.get_pipeline_data(
+            data_type="seasonal-rainfall-hindcast",
+            country=country
+        )
 
         # Load forecast data
         ds_forecast = convert_to_mm_per_month(
@@ -285,8 +288,9 @@ class Extract:
                 pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth - 1)
                 for fcmonth in tprate_forecast.forecastMonth
             ]
-            
-            anomalies = ds_forecast['tprate'] - tprate_hindcast_mean['tprate']
+            tprate_hindcast_mean = tprate_hindcast.get_data_unit(model=triggermodel)
+            hindcast = self.__hindcast_list_to_xarray(tprate_hindcast_mean)
+            anomalies = ds_forecast['tprate'] - hindcast["hindcast_mean"]
             
             # Convert precipitation rates to accumulation
             numdays = [monthrange(dd.year, dd.month)[1] for dd in valid_time]
@@ -302,9 +306,11 @@ class Extract:
                 .rolling(forecastMonth=3, min_periods=1)
                 .sum()
             )
-            
             tprate_forecast = seas5_forecast_3m['tprate']
-            anomalies = seas5_forecast_3m.tprate - tprate_hindcast_mean.tprate
+
+            tprate_hindcast_mean = tprate_hindcast.get_data_unit(model=triggermodel)
+            hindcast = self.__hindcast_list_to_xarray(tprate_hindcast_mean)
+            anomalies = seas5_forecast_3m.tprate - hindcast["hindcast_mean"]
             
             # Calculate number of days for each forecast month
             vt = [pd.to_datetime(tprate_forecast.time.values) + relativedelta(months=fcmonth+1) 
@@ -396,14 +402,24 @@ class Extract:
             regional_mean = sub_anomalies.weighted(weights).mean(['latitude', 'longitude'])
 
             # Create dataframe for anomalies
-            anomalies_df = regional_mean.drop_vars(['time', 'surface', 'numdays']).to_dataframe()
-            anomalies_df = anomalies_df.rename(columns={'tprate': 'anomaly'})
-            anomalies_df = anomalies_df.reset_index().drop('forecastMonth', axis=1).set_index(['valid_time', 'number']).unstack()
+            regional_mean_named = regional_mean.drop_vars(['time', 'surface', 'numdays']).rename('anomaly')
+            anomalies_df = regional_mean_named.to_dataframe()
+            anomalies_df = anomalies_df.reset_index().drop('forecastMonth', axis=1)
+            
+            # Aggregate duplicates by mean to avoid unstack error
+            anomalies_df = anomalies_df.groupby(['valid_time', 'number']).mean().unstack()
             anomalies_df = anomalies_df.reset_index()
             anomalies_df['valid_time'] = anomalies_df['valid_time'].dt.strftime('%b, %Y')
 
             # Get precalculated thresholds from CosmosDB
-            thresholds = self.load.get_threshold_data(country, triggermodel, climateRegion)
+            threshold_dataset = self.load.get_pipeline_data(
+                data_type="seasonal-rainfall-threshold",
+                country=country
+            )
+            threshold_du = threshold_dataset.get_data_unit(
+                climate_region_code=climateRegion,
+                model=triggermodel
+            )
 
             # Calculate trigger status
             dftemp=anomalies_df.anomaly        
@@ -411,11 +427,11 @@ class Extract:
             forecastQ=dftemp.to_dict(orient='index')
             forecastData={
                 'climateRegion':climateRegion,
-                'tercile_lower':thresholds['P33'],
-                'tercile_upper':thresholds['P66'],
+                'tercile_lower':threshold_du.thresholds['P33'],
+                'tercile_upper':threshold_du.thresholds['P66'],
                 'forecast':forecastQ
                 }
-            tercile_seasonal_prc_df = pd.Series(thresholds["P33"], name='p33').rename_axis('forecastMonth').to_frame()
+            tercile_seasonal_prc_df = pd.Series(threshold_du.thresholds["P33"], name='p33').rename_axis('forecastMonth').to_frame()
             tercile_seasonal_prc_df = tercile_seasonal_prc_df.reset_index().drop('forecastMonth', axis=1)
             dftemp=anomalies_df.anomaly 
             tercile_seasonal_prc_df['triggerForecast'] = (dftemp.iloc[:, :51].lt(tercile_seasonal_prc_df.iloc[:, 0], axis=0).sum(axis=1) / 51) 
@@ -460,133 +476,39 @@ class Extract:
                         )
                     )
             logging.info(f"finished extraction of rainfall forecast for climate region{climateRegion}")
-
-
-    def compare_forecast_to_historical_lower_tercile(self,country,ds_hindcast, ds_forecast,trigger_on_minimum_probability):
-        """
-        Compare the forecast data against the historical lower tercile (33rd percentile).    
-        Parameters:
-            ds_hindcast (xarray.Dataset): Historical hindcast dataset containing 'tprate'.
-            ds_forecast (xarray.Dataset): Forecast dataset containing 'tprate'.        
-        Returns:
-            xarray.Dataset: A dataset containing the 33rd percentile (lower tercile) 
-                            and probability of forecast being below this threshold.
-        """
-        
-        probability_maps = []
-        drought_extent_maps = []
-        quantile_thr= self.settings.get_country_setting(country,"trigger_model")["tercile_treshold"]    
-
-        raster_files={}
-
-        # Iterate over each forecast month
-        for month in ds_hindcast.forecastMonth.values:
-            lead_time=month-1
-
-            # Extract data for the current forecast month
-            data_month = ds_hindcast['tprate'].sel(forecastMonth=month)
-            data_month2 = ds_forecast['tprate'].sel(forecastMonth=month) 
-            quantile_33 = data_month.quantile(quantile_thr, dim=["time", "number"])
-            probability = (data_month2 <= quantile_33).sum(dim="number") / data_month2.sizes["number"]
-            new_lat = np.linspace(probability.latitude.values.min(), probability.latitude.values.max(), probability.latitude.size * 10)
-            new_lon = np.linspace(probability.longitude.values.min(), probability.longitude.values.max(), probability.longitude.size * 10)
-            regional_mean = probability.rio.write_crs("EPSG:4326")
-            resampled_regional_mean = regional_mean.interp(latitude=new_lat, longitude=new_lon, method="nearest")
-            
-            # Ensure the resampled DataArray has spatial dimensions
-            resampled_regional_mean = resampled_regional_mean.rio.write_crs("EPSG:4326")
-            resampled_regional_mean = resampled_regional_mean.drop_vars([coord for coord in resampled_regional_mean.coords if coord not in ['latitude', 'longitude']])      
-            binary_clipped_regional_mean = (resampled_regional_mean > trigger_on_minimum_probability).astype(int)
-            raster_files[month]=binary_clipped_regional_mean
-
-            # Store results
-            probability_maps.append(resampled_regional_mean)
-            drought_extent_maps.append(binary_clipped_regional_mean)
-            latitudes = resampled_regional_mean.latitude.values
-            longitudes = resampled_regional_mean.longitude.values
-
-            # Define the transform
-            transform = from_origin(longitudes[0], latitudes[0], longitudes[1] - longitudes[0], latitudes[0] - latitudes[1])
-            prefix='rlower_tercile_probability'
-            temp_output = f"{self.outputPathGrid}/temp_{prefix}.tif"
-            output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
-            data = resampled_regional_mean.values
-
-            with rasterio.open(
-                temp_output,
-                'w',
-                driver='GTiff',
-                height=data.shape[0],
-                width=data.shape[1],
-                count=1,
-                dtype=data.dtype,
-                crs='EPSG:4326',
-                transform=transform,
-            ) as dst:
-                dst.write(data, 1)
-
-            # Download admin boundaries from  Natural Earth
-            url = "https://naturalearth.s3.amazonaws.com/110m_cultural/ne_110m_admin_0_countries.zip" #TODO: pull country shapefile from IBF API instead
-            admin0 = gpd.read_file(url)
-            admin_gdf=admin0.query("ADM0_A3 == @country")
-            admin_gdf = admin_gdf.to_crs('EPSG:4326')  # Ensure CRS matches raster
-
-            # Clip using rasterio.mask
-            with rasterio.open(temp_output) as src:
-                clipped_image, clipped_transform = mask(src, admin_gdf.geometry, crop=True)
-                clipped_meta = src.meta.copy()
-
-            # Update metadata
-            clipped_meta.update({
-                "height": clipped_image.shape[1],
-                "width": clipped_image.shape[2],
-                "transform": clipped_transform
-            })
-
-            # Save clipped raster
-            with rasterio.open(output_file, 'w', **clipped_meta) as dst:
-                dst.write(clipped_image)
-            prefix='drought_extent' #'drought_extent'    
-            output_file = f"{self.outputPathGrid}/{prefix}_{lead_time}-month_{country}.tif"
-            temp_output = f"{self.outputPathGrid}/temp_{prefix}.tif"
-            data = binary_clipped_regional_mean.values
-            with rasterio.open(
-                temp_output,
-                'w',
-                driver='GTiff',
-                height=data.shape[0],
-                width=data.shape[1],
-                count=1,
-                dtype=data.dtype,
-                crs='+proj=latlong',
-                transform=transform,
-            ) as dst:
-                dst.write(data, 1)
-
-            # Clip using rasterio.mask
-            with rasterio.open(temp_output) as src:
-                clipped_image, clipped_transform = mask(src, admin_gdf.geometry, crop=True)
-                clipped_meta = src.meta.copy()
-
-            # Update metadata
-            clipped_meta.update({
-                "height": clipped_image.shape[1],
-                "width": clipped_image.shape[2],
-                "transform": clipped_transform
-            })
-
-            # Save clipped raster
-            with rasterio.open(output_file, 'w', **clipped_meta) as dst:
-                dst.write(clipped_image)
-                
-        # Combine results into new DataArrays
-        quantile_ds = xr.concat(drought_extent_maps, dim="forecastMonth")
-        probability_ds = xr.concat(probability_maps, dim="forecastMonth")
-        
-        # Save results to a new dataset
-        output_ds = xr.Dataset({
-            "quantile_33": quantile_ds,
-            "probability": probability_ds,
-          
-        })
-        return raster_files
+    
+    @staticmethod
+    def __hindcast_list_to_xarray(hindcast_du):
+        # Flatten all points from all HindcastDataUnit objects
+        points = []
+        # for hdu in hindcast_du_list:
+        if hindcast_du.seasonal_rainfall:
+            points.extend(hindcast_du.seasonal_rainfall)
+        lats = sorted(set(p["lat"] for p in points))
+        lons = sorted(set(p["lon"] for p in points))
+        nlat = len(lats)
+        nlon = len(lons)
+        nens = len(points[0]["hindcast_ensemble"])
+        # Create empty arrays
+        ensemble = np.full((nlat, nlon, nens), np.nan)
+        mean = np.full((nlat, nlon), np.nan)
+        # Fill arrays
+        lat_idx = {v: i for i, v in enumerate(lats)}
+        lon_idx = {v: i for i, v in enumerate(lons)}
+        for p in points:
+            i = lat_idx[p["lat"]]
+            j = lon_idx[p["lon"]]
+            ensemble[i, j, :] = p["hindcast_ensemble"]
+            mean[i, j] = p["hindcast_mean"]
+        # Build xarray Dataset
+        ds = xr.Dataset(
+            {
+                "hindcast_ensemble": (["lat", "lon", "ensemble"], ensemble),
+                "hindcast_mean": (["lat", "lon"], mean),
+            },
+            coords={
+                "lat": lats,
+                "lon": lons,
+            }
+        )
+        return ds
