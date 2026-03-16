@@ -11,7 +11,56 @@ class AdminDataUnit:
         self.adm_level: int = kwargs.get("adm_level")
         self.pcode: str = kwargs.get("pcode")
 
-# TODO: create data unit for hindcast data
+
+class HindcastDataUnit:
+    """Seasonal hindcast rainfall data unit"""
+
+    def __init__(self, **kwargs):
+        self.seasonal_rainfall: float = kwargs.get("seasonal_rainfall")
+        self.lead_time = kwargs.get("lead_time")
+        self.model = kwargs.get("model")
+
+
+class HindcastDataSet:
+    """Hindcast data set"""
+
+    def __init__(self,
+        country: str = None,
+        timestamp: datetime = datetime.now(),
+        data_units: List[HindcastDataUnit] = None,
+    ):
+        self.country = country
+        self.timestamp = timestamp
+        self.data_units = data_units
+
+    def upsert_data_unit(self, data_unit: HindcastDataUnit):
+        """Add data unit; if it already exists, update it"""
+        if not self.data_units:
+            self.data_units = [data_unit]
+        hdu = next(
+            filter(
+                lambda x: x.seasonal_rainfall == data_unit.seasonal_rainfall,
+                self.data_units,
+            ),
+            None,
+        )
+        if not hdu:
+            self.data_units.append(data_unit)
+        else:
+            self.data_units[self.data_units.index(hdu)] = data_unit
+
+    def get_data_unit(self, model: str) -> "HindcastDataUnit":
+        """Get data unit by model"""
+        if not self.data_units:
+            raise ValueError("Data units not found")
+        bdu = next(
+            filter(lambda x: x.model == model, self.data_units),
+            None,
+        )
+        if not bdu:
+            raise ValueError(f"Data unit with model {model} not found")
+        return bdu
+
 
 class ClimateRegionDataUnit:
     """Base class for climate region data units"""
@@ -21,6 +70,23 @@ class ClimateRegionDataUnit:
         self.climate_region_name: str = kwargs.get("climate_region_name")
         self.adm_level: int = kwargs.get("adm_level")
         self.pcodes: dict = kwargs.get("pcodes")  # pcodes of associated administrative divisions
+
+
+class ClimateRegionThresholdDataUnit(ClimateRegionDataUnit):
+    """Climate region threshold data unit"""
+
+    def __init__(self, thresholds: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.model: str = kwargs.get("model")
+        self.thresholds: dict = thresholds
+
+    def get_threshold(self, percentile: str, lead_time: int) -> float:
+        """Get trigger threshold by Percentile and Lead Time"""
+        try:
+            return self.thresholds[percentile][str(lead_time)]
+        except KeyError:
+            raise ValueError(f"Percentile {percentile} with lead time {lead_time} not found")
+
 
 class RainfallDataUnit(AdminDataUnit):
     """Rainfall data unit - admin"""
@@ -64,7 +130,6 @@ class ForecastDataUnit(AdminDataUnit):
         self.likelihood: float = kwargs.get("likelihood", None)
         self.return_period: float = kwargs.get("return_period", None)
         self.alert_class: str = kwargs.get("alert_class", None)
-
 
 
 class AdminDataSet:
@@ -168,7 +233,6 @@ class AdminDataSet:
             )
         else:
             return bdu
-            
 
     def upsert_data_unit(self, data_unit: AdminDataUnit):
         """Add data unit; if it already exists, update it"""
@@ -218,15 +282,21 @@ class ClimateRegionDataSet:
         self.timestamp = timestamp
         self.data_units = data_units
 
-    def get_data_unit(self, climate_region_code: str) -> "ClimateRegionDataUnit":
-        """Get data unit by climate_region_code"""
+    def get_data_unit(self, climate_region_code: str, model: str = None) -> "ClimateRegionDataUnit":
+        """Get data unit by climate_region_code and optionally by model"""
         if not self.data_units:
             raise ValueError("Data units not found")
 
-        bdu = next(
-            filter(lambda x: x.climate_region_code == climate_region_code, self.data_units),
-            None,
-        )
+        if model is not None:
+            bdu = next(
+                filter(lambda x: x.climate_region_code == climate_region_code and x.model == model, self.data_units),
+                None,
+            )
+        else:
+            bdu = next(
+                filter(lambda x: x.climate_region_code == climate_region_code, self.data_units),
+                None,
+            )
 
         if not bdu:
             raise ValueError(f"Data unit with climate_region_code {climate_region_code} not found")
@@ -311,9 +381,7 @@ class ClimateRegionDataSet:
         """Return list of unique station codes"""
         return list(
             set([x.climate_region_code for x in self.data_units if hasattr(x, "climate_region_code")])
-        )       
-        
-
+        )
 
 
 class PipelineDataSets:
