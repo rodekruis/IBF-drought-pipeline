@@ -12,9 +12,12 @@ from droughtpipeline.settings import Settings
 from droughtpipeline.data import (
     AdminDataSet,
     AdminDataUnit,
+    ClimateRegionThresholdDataUnit,
     ForecastDataUnit,
-    ClimateRegionDataSet,  
-    ClimateRegionDataUnit
+    ClimateRegionDataSet,
+    ClimateRegionDataUnit,
+    HindcastDataSet,
+    HindcastDataUnit
 )
 from urllib.error import HTTPError
 import urllib.request, json
@@ -36,7 +39,8 @@ COSMOS_DATA_TYPES = [
     "climate-region",
     "seasonal-rainfall-forecast",
     'seasonal-rainfall-forecast-climate-region',
-    'seasonal-rainfall-hindcast'
+    'seasonal-rainfall-hindcast',
+    'seasonal-rainfall-threshold'
 ]
 
 
@@ -80,10 +84,15 @@ def get_data_unit_id(data_unit: AdminDataUnit, dataset: AdminDataSet):
     elif hasattr(data_unit, "climate_region_code"):
         if hasattr(data_unit, "lead_time"):
             id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}"
+        elif hasattr(data_unit, "model") :
+            id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.model}"
         else:
             id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
     else:
-        id_ = f"{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
+        if hasattr(data_unit, "lead_time") and hasattr(data_unit, "model"):
+            id_ = f"{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}_{data_unit.model}"
+        else:
+            id_ = f"{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
     return id_
 
 
@@ -472,6 +481,18 @@ class Load:
                     raise ValueError(
                         f"Data unit {data_unit} is not of type ClimateregionDataUnit"
                     )
+        elif data_type == "seasonal-rainfall-hindcast":
+            for data_unit in dataset.data_units:
+                if not isinstance(data_unit, HindcastDataUnit):
+                    raise ValueError(
+                        f"Data unit {data_unit} is not of type seasonal rainfall hindcast"
+                    )
+        elif data_type == "seasonal-rainfall-threshold":
+            for data_unit in dataset.data_units:
+                if not isinstance(data_unit, ClimateRegionThresholdDataUnit):
+                    raise ValueError(
+                        f"Data unit {data_unit} is not of type seasonal rainfall threshold"
+                    )
 
         client_ = cosmos_client.CosmosClient(
             self.secrets.get_secret("COSMOS_URL"),
@@ -569,19 +590,6 @@ class Load:
                                 pop_affected_perc=record["pop_affected_perc"],
                                 alert_class=record["alert_class"],
                             )
-                        # elif data_type == "seasonal-rainfall-forecast-climate-region": # TODO:refine
-                        #     data_unit = ForecastDataUnit(
-                        #         adm_level=record["adm_level"],
-                        #         pcode=record["pcode"],
-                        #         lead_time=record["lead_time"],
-                        #         triggered=record["triggered"],
-                        #         tercile_upper=record["tercile_upper"],
-                        #         tercile_lower=record["tercile_lower"],
-                        #         likelihood=record["likelihood"],
-                        #         pop_affected=record["pop_affected"],
-                        #         pop_affected_perc=record["pop_affected_perc"],
-                        #         alert_class=record["alert_class"],
-                        #     )
                         elif data_type == "climate-region":
                             data_unit = ClimateRegionDataUnit(
                                 adm_level=record["adm_level"],
@@ -589,7 +597,19 @@ class Load:
                                 climate_region_name=record["climate_region_name"],
                                 pcodes=record["pcodes"],
                             )
-            
+                        elif data_type == "seasonal-rainfall-hindcast":
+                            data_unit = HindcastDataUnit(
+                                seasonal_rainfall=record["seasonal_rainfall"],
+                                lead_time=record["lead_time"],
+                                model=record["model"],
+                            )
+                        elif data_type == "seasonal-rainfall-threshold":
+                            data_unit = ClimateRegionThresholdDataUnit(
+                                climate_region_code=record["climate_region_code"],
+                                climate_region_name=record["climate_region_name"],
+                                model=record["model"],
+                                thresholds=record["thresholds"],
+                            )
                         else:
                             raise ValueError(f"Invalid data type {data_type}")
                         data_units.append(data_unit)
@@ -603,6 +623,13 @@ class Load:
                         country=country,
                         timestamp=timestamp,
                         adm_levels=adm_levels,
+                        data_units=data_units,
+                    )
+                    datasets.append(dataset)
+                elif data_type in ["seasonal-rainfall-hindcast"]:
+                    dataset = HindcastDataSet(
+                        country=country,
+                        timestamp=timestamp,
                         data_units=data_units,
                     )
                     datasets.append(dataset)
@@ -872,109 +899,6 @@ class Load:
         events = dict(sorted(events.items()))
         return events
 
-    # TODO: to move to save_pipeline_data
-    def save_hindcast_data(self, country: str, hindcast_data: dict, triggermodel: str, timestamp: datetime = datetime.now()):
-        """
-        Save hindcast mean data to CosmosDB for reuse across runs
-        
-        Parameters:
-            country (str): Country code
-            hindcast_data (dict): Dictionary containing hindcast ensemble and mean per forecast month
-            timestamp (datetime): Timestamp of the data
-        """
-        # Store as per-month documents containing seasonal_rainfall list
-        client_ = cosmos_client.CosmosClient(
-            self.secrets.get_secret("COSMOS_URL"),
-            {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
-            user_agent="drought-pipeline",
-            user_agent_overwrite=True,
-        )
-        cosmos_db = client_.get_database_client("drought-pipeline")
-        cosmos_container_client = cosmos_db.get_container_client("seasonal-rainfall-hindcast")
-
-        count = 0
-        for month, point_map in hindcast_data.items():
-            try:
-                m = int(month)
-            except Exception:
-                continue
-            seasonal_list = []
-            for point_key, val in point_map.items():
-                try:
-                    lat_str, lon_str = point_key.split(",")
-                    lat = float(lat_str)
-                    lon = float(lon_str)
-                except Exception:
-                    continue
-                
-                mean_val = val.get('mean')
-
-                seasonal_item = {
-                    "lat": lat, 
-                    "lon": lon, 
-                    "mean": float(mean_val),
-                    }
-
-                seasonal_list.append(seasonal_item)
-
-            doc_id = f"{timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{m}_{triggermodel}"
-            record = {
-                "id": doc_id,
-                "country": country,
-                "model": triggermodel,
-                "lead_time": m,
-                "seasonal_rainfall": seasonal_list,
-                "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
-            }
-
-            try:
-                cosmos_container_client.upsert_item(body=record)
-                count += 1
-            except Exception as e:
-                logging.error(f"Failed to upsert hindcast month {m} for {country}: {e}")
-
-        logging.info(f"Upserted {count} per-month hindcast documents for country {country}")
-
-    # TODO: to move to save_pipeline_data
-    def save_threshold_data(self, country: str, thresholds: dict, triggermodel: str, climate_region_code: str, timestamp: datetime = datetime.now()):
-        """
-        Save threshold values (e.g. P0, P33, P66, P100) for a climate region to CosmosDB.
-
-        Parameters:
-            country (str): Country code
-            thresholds (dict): Dict of percentile keys mapping to per-month dicts
-            triggermodel (str): Trigger model name
-            climate_region_code (str): Climate region code
-            timestamp (datetime): Timestamp of the thresholds
-        """
-        client_ = cosmos_client.CosmosClient(
-            self.secrets.get_secret("COSMOS_URL"),
-            {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
-            user_agent="drought-pipeline",
-            user_agent_overwrite=True,
-        )
-        cosmos_db = client_.get_database_client("drought-pipeline")
-
-        # use a dedicated container for thresholds
-        container_name = "seasonal-rainfall-threshold"
-        cosmos_container_client = cosmos_db.get_container_client(container_name)
-
-        doc_id = f"{timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{climate_region_code}_{triggermodel}"
-
-        record = {
-            "id": doc_id,
-            "country": country,
-            "model": triggermodel,
-            "climate_region": str(climate_region_code),
-            "thresholds": thresholds,
-            "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%S"),
-        }
-
-        try:
-            cosmos_container_client.upsert_item(body=record)
-            logging.info(f"Upserted thresholds for climate region {climate_region_code} (model {triggermodel})")
-        except Exception as e:
-            logging.error(f"Failed to upsert thresholds for {climate_region_code}: {e}")
 
     def get_threshold_data(self, country: str, triggermodel: str, climate_region_code: str):
         """
