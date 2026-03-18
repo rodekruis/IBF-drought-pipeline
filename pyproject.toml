@@ -42,3 +42,7 @@ xarray = "*"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+[dependency-groups]
+dev = [
+    "ipykernel (>=7.1.0,<8.0.0)"
+]

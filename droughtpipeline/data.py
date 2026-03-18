@@ -11,6 +11,57 @@ class AdminDataUnit:
         self.adm_level: int = kwargs.get("adm_level")
         self.pcode: str = kwargs.get("pcode")
 
+
+class HindcastDataUnit:
+    """Seasonal hindcast rainfall data unit"""
+
+    def __init__(self, **kwargs):
+        self.seasonal_rainfall: float = kwargs.get("seasonal_rainfall")
+        self.lead_time = kwargs.get("lead_time")
+        self.model = kwargs.get("model")
+
+
+class HindcastDataSet:
+    """Hindcast data set"""
+
+    def __init__(self,
+        country: str = None,
+        timestamp: datetime = datetime.now(),
+        data_units: List[HindcastDataUnit] = None,
+    ):
+        self.country = country
+        self.timestamp = timestamp
+        self.data_units = data_units
+
+    def upsert_data_unit(self, data_unit: HindcastDataUnit):
+        """Add data unit; if it already exists, update it"""
+        if not self.data_units:
+            self.data_units = [data_unit]
+        hdu = next(
+            filter(
+                lambda x: x.seasonal_rainfall == data_unit.seasonal_rainfall,
+                self.data_units,
+            ),
+            None,
+        )
+        if not hdu:
+            self.data_units.append(data_unit)
+        else:
+            self.data_units[self.data_units.index(hdu)] = data_unit
+
+    def get_data_unit(self, model: str) -> "HindcastDataUnit":
+        """Get data unit by model"""
+        if not self.data_units:
+            raise ValueError("Data units not found")
+        bdu = next(
+            filter(lambda x: x.model == model, self.data_units),
+            None,
+        )
+        if not bdu:
+            raise ValueError(f"Data unit with model {model} not found")
+        return bdu
+
+
 class ClimateRegionDataUnit:
     """Base class for climate region data units"""
 
@@ -19,6 +70,23 @@ class ClimateRegionDataUnit:
         self.climate_region_name: str = kwargs.get("climate_region_name")
         self.adm_level: int = kwargs.get("adm_level")
         self.pcodes: dict = kwargs.get("pcodes")  # pcodes of associated administrative divisions
+
+
+class ClimateRegionThresholdDataUnit(ClimateRegionDataUnit):
+    """Climate region threshold data unit"""
+
+    def __init__(self, thresholds: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.model: str = kwargs.get("model")
+        self.thresholds: dict = thresholds
+
+    def get_threshold(self, percentile: str, lead_time: int) -> float:
+        """Get trigger threshold by Percentile and Lead Time"""
+        try:
+            return self.thresholds[percentile][str(lead_time)]
+        except KeyError:
+            raise ValueError(f"Percentile {percentile} with lead time {lead_time} not found")
+
 
 class RainfallDataUnit(AdminDataUnit):
     """Rainfall data unit - admin"""
@@ -33,81 +101,14 @@ class RainfallDataUnit(AdminDataUnit):
         self.trigger: bool = kwargs.get("trigger", None)
 
 
-        if hasattr(self.likelihood, "__iter__"):
-            self.compute_threshold() 
-
-    def compute_threshold(self):
-        """Compute the percentage of forecast values below the tercile lower threshold"""
-        self.likelihood = {}
-        for lead_time in range(1, 7):
-            # Check if necessary data is available
-            if lead_time not in self.rainfall_forecast:
-                print(f"Warning: Missing rainfall forecast data for lead_time {lead_time}") # TODO: replace all print() with logger 
-                continue
-            if lead_time not in self.tercile_lower:
-                print(f"Warning: Missing tercile lower data for lead_time {lead_time}")
-                continue
-
-            forecast_values = np.array(self.rainfall_forecast[lead_time])
-            tercile_lower_value = self.tercile_lower[lead_time]
-
-            # Ensure forecast values are not empty
-            if len(forecast_values) == 0:
-                print(f"Warning: Empty rainfall forecast values for lead_time {lead_time}")
-                continue
-
-            # Compute the percentage of values below the tercile lower threshold
-            percentage_below_tercile_lower = (
-                (forecast_values < tercile_lower_value).sum() / len(forecast_values) 
-            )
-
-            key = f"{lead_time}_month"
-            self.likelihood[key] = int(percentage_below_tercile_lower)
-
 class RainfallClimateRegionDataUnit(ClimateRegionDataUnit):
     """rainfall data unit - climate region"""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.lead_time: int = kwargs.get("lead_time", 0)
-        self.tercile_lower: float = kwargs.get("tercile_lower", None)
-        self.tercile_upper: float = kwargs.get("tercile_upper", None)
-        self.rainfall_forecast: List[float]= kwargs.get("rainfall_forecast", None)
-        self.likelihood: float = kwargs.get("likelihood", None)
-        self.trigger: bool = kwargs.get("trigger", None)
+        self.model: str = kwargs.get("model")
+        self.thresholds: dict = kwargs.get("thresholds", None)
 
-        if hasattr(self.likelihood, "__iter__"):
-            self.compute_threshold() 
-
-    def compute_threshold(self):
-        """Compute the percentage of forecast values below the tercile lower threshold"""
-        self.likelihood = {}
-        for lead_time in range(1, 7):
-            # Check if necessary data is available
-            if lead_time not in self.rainfall_forecast:
-                print(f"Warning: Missing rainfall forecast data for lead_time {lead_time}")
-                continue
-            if lead_time not in self.tercile_lower:
-                print(f"Warning: Missing tercile lower data for lead_time {lead_time}")
-                continue
-
-            forecast_values = np.array(self.rainfall_forecast[lead_time])
-            tercile_lower_value = self.tercile_lower[lead_time]
-
-            # Ensure forecast values are not empty
-            if len(forecast_values) == 0:
-                print(f"Warning: Empty rainfall forecast values for lead_time {lead_time}")
-                continue
-
-            # Compute the percentage of values below the tercile lower threshold
-            percentage_below_tercile_lower = (
-                (forecast_values < tercile_lower_value).sum() / len(forecast_values) 
-            )
-
-            key = f"{lead_time}_month"
-            self.likelihood[key] = int(percentage_below_tercile_lower)
-            
- 
 
 class ForecastDataUnit(AdminDataUnit):
     """Drought forecast data unit"""
@@ -129,7 +130,6 @@ class ForecastDataUnit(AdminDataUnit):
         self.likelihood: float = kwargs.get("likelihood", None)
         self.return_period: float = kwargs.get("return_period", None)
         self.alert_class: str = kwargs.get("alert_class", None)
-
 
 
 class AdminDataSet:
@@ -233,7 +233,6 @@ class AdminDataSet:
             )
         else:
             return bdu
-            
 
     def upsert_data_unit(self, data_unit: AdminDataUnit):
         """Add data unit; if it already exists, update it"""
@@ -283,15 +282,21 @@ class ClimateRegionDataSet:
         self.timestamp = timestamp
         self.data_units = data_units
 
-    def get_data_unit(self, climate_region_code: str) -> "ClimateRegionDataUnit":
-        """Get data unit by climate_region_code"""
+    def get_data_unit(self, climate_region_code: str, model: str = None) -> "ClimateRegionDataUnit":
+        """Get data unit by climate_region_code and optionally by model"""
         if not self.data_units:
             raise ValueError("Data units not found")
 
-        bdu = next(
-            filter(lambda x: x.climate_region_code == climate_region_code, self.data_units),
-            None,
-        )
+        if model is not None:
+            bdu = next(
+                filter(lambda x: x.climate_region_code == climate_region_code and x.model == model, self.data_units),
+                None,
+            )
+        else:
+            bdu = next(
+                filter(lambda x: x.climate_region_code == climate_region_code, self.data_units),
+                None,
+            )
 
         if not bdu:
             raise ValueError(f"Data unit with climate_region_code {climate_region_code} not found")
@@ -376,9 +381,7 @@ class ClimateRegionDataSet:
         """Return list of unique station codes"""
         return list(
             set([x.climate_region_code for x in self.data_units if hasattr(x, "climate_region_code")])
-        )       
-        
-
+        )
 
 
 class PipelineDataSets:

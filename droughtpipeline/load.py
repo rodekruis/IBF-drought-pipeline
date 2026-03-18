@@ -5,21 +5,27 @@ import copy
 import time
 import os
 import json
+from typing import Any
 import cdsapi  
 from droughtpipeline.secrets import Secrets
 from droughtpipeline.settings import Settings
 from droughtpipeline.data import (
     AdminDataSet,
     AdminDataUnit,
+    ClimateRegionThresholdDataUnit,
     ForecastDataUnit,
-    ClimateRegionDataSet,  
-    ClimateRegionDataUnit
+    ClimateRegionDataSet,
+    ClimateRegionDataUnit,
+    HindcastDataSet,
+    HindcastDataUnit
 )
 from urllib.error import HTTPError
 import urllib.request, json
 from datetime import datetime, timedelta, date
 import azure.cosmos.cosmos_client as cosmos_client
 import logging
+import xarray as xr
+import numpy as np
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import requests
@@ -32,7 +38,9 @@ from azure.core.exceptions import ResourceNotFoundError
 COSMOS_DATA_TYPES = [
     "climate-region",
     "seasonal-rainfall-forecast",
-    'seasonal-rainfall-forecast-climate-region'
+    'seasonal-rainfall-forecast-climate-region',
+    'seasonal-rainfall-hindcast',
+    'seasonal-rainfall-threshold'
 ]
 
 
@@ -76,10 +84,15 @@ def get_data_unit_id(data_unit: AdminDataUnit, dataset: AdminDataSet):
     elif hasattr(data_unit, "climate_region_code"):
         if hasattr(data_unit, "lead_time"):
             id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}"
+        elif hasattr(data_unit, "model") :
+            id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.model}"
         else:
             id_ = f"{data_unit.climate_region_code}_{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
     else:
-        id_ = f"{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
+        if hasattr(data_unit, "lead_time") and hasattr(data_unit, "model"):
+            id_ = f"{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}_{data_unit.lead_time}_{data_unit.model}"
+        else:
+            id_ = f"{dataset.timestamp.strftime('%Y-%m-%dT%H:%M:%S')}"
     return id_
 
 
@@ -468,6 +481,18 @@ class Load:
                     raise ValueError(
                         f"Data unit {data_unit} is not of type ClimateregionDataUnit"
                     )
+        elif data_type == "seasonal-rainfall-hindcast":
+            for data_unit in dataset.data_units:
+                if not isinstance(data_unit, HindcastDataUnit):
+                    raise ValueError(
+                        f"Data unit {data_unit} is not of type seasonal rainfall hindcast"
+                    )
+        elif data_type == "seasonal-rainfall-threshold":
+            for data_unit in dataset.data_units:
+                if not isinstance(data_unit, ClimateRegionThresholdDataUnit):
+                    raise ValueError(
+                        f"Data unit {data_unit} is not of type seasonal rainfall threshold"
+                    )
 
         client_ = cosmos_client.CosmosClient(
             self.secrets.get_secret("COSMOS_URL"),
@@ -565,19 +590,6 @@ class Load:
                                 pop_affected_perc=record["pop_affected_perc"],
                                 alert_class=record["alert_class"],
                             )
-                        # elif data_type == "seasonal-rainfall-forecast-climate-region": # TODO:refine
-                        #     data_unit = ForecastDataUnit(
-                        #         adm_level=record["adm_level"],
-                        #         pcode=record["pcode"],
-                        #         lead_time=record["lead_time"],
-                        #         triggered=record["triggered"],
-                        #         tercile_upper=record["tercile_upper"],
-                        #         tercile_lower=record["tercile_lower"],
-                        #         likelihood=record["likelihood"],
-                        #         pop_affected=record["pop_affected"],
-                        #         pop_affected_perc=record["pop_affected_perc"],
-                        #         alert_class=record["alert_class"],
-                        #     )
                         elif data_type == "climate-region":
                             data_unit = ClimateRegionDataUnit(
                                 adm_level=record["adm_level"],
@@ -585,7 +597,19 @@ class Load:
                                 climate_region_name=record["climate_region_name"],
                                 pcodes=record["pcodes"],
                             )
-            
+                        elif data_type == "seasonal-rainfall-hindcast":
+                            data_unit = HindcastDataUnit(
+                                seasonal_rainfall=record["seasonal_rainfall"],
+                                lead_time=record["lead_time"],
+                                model=record["model"],
+                            )
+                        elif data_type == "seasonal-rainfall-threshold":
+                            data_unit = ClimateRegionThresholdDataUnit(
+                                climate_region_code=record["climate_region_code"],
+                                climate_region_name=record["climate_region_name"],
+                                model=record["model"],
+                                thresholds=record["thresholds"],
+                            )
                         else:
                             raise ValueError(f"Invalid data type {data_type}")
                         data_units.append(data_unit)
@@ -599,6 +623,13 @@ class Load:
                         country=country,
                         timestamp=timestamp,
                         adm_levels=adm_levels,
+                        data_units=data_units,
+                    )
+                    datasets.append(dataset)
+                elif data_type in ["seasonal-rainfall-hindcast"]:
+                    dataset = HindcastDataSet(
+                        country=country,
+                        timestamp=timestamp,
                         data_units=data_units,
                     )
                     datasets.append(dataset)
@@ -672,29 +703,62 @@ class Load:
                     f"File {blob_path} not found in Azure Blob Storage"
                 )
 
-
-    def download_ecmwf_forecast(self, country, data_dir, current_year, current_month):
-        """Download ECMWF seasonal hindcast data for historical period
-        Args:
-            country (str): Country name
-            data_dir (str): Directory to save data
-            current_year (int): Current year
-            current_month (int): Current month
-        """   
-        gdf=self.get_adm_boundaries(country,1)
-
+    def _find_bounds(self, country: str): 
+        """Find bounding box of country admin level 1 boundaries"""
+        gdf = self.get_adm_boundaries(country, 1)
         min_x, min_y, max_x, max_y = gdf.total_bounds
-        
+        return min_x, min_y, max_x, max_y
+    
+    def request_ecmwf_data(self, request: dict[str, Any], target: str):
+        """Make request to ECMWF CDS API
+        """
         KEY = os.getenv('CDSAPI_KEY')
         URL = 'https://cds.climate.copernicus.eu/api'
-
         c = cdsapi.Client(url=URL, 
                           key=KEY, 
                           wait_until_complete=False, 
                           delete=False)
 
-        # Forecast data request
+        # ECMWF data request
         dataset = 'seasonal-monthly-single-levels'
+        c.retrieve(dataset, request, target)
+
+    def download_ecmwf_hindcast(self, data_dir: str, country: str, year_start: int = 1991, year_end: int = 2020):
+        """Download ECMWF seasonal hindcast data for historical period
+        Args:
+            country (str): Country name
+            data_dir (str): Directory to save data
+        """
+        min_x, min_y, max_x, max_y = self._find_bounds(country)
+        request = {
+            "originating_centre": "ecmwf",
+            "system": "51",
+            "variable": ["total_precipitation"],
+            "product_type": ["monthly_mean"],
+            "year": [
+                str(y) for y in range(1991, 2021)
+            ],
+            "month": ["03"],
+            "leadtime_month": [
+                str(m) for m in range(1,7)
+            ],
+            "data_format": "grib",
+            "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
+        }
+        # target = f'{data_dir}/ecmwf_seas5_hindcast_monthly_tp.grib'
+        self.request_ecmwf_data(request, data_dir)
+
+    def download_ecmwf_forecast(self, data_dir, country, current_year, current_month):
+        """Download ECMWF seasonal forecast data
+        Args:
+            country (str): Country name
+            data_dir (str): Directory to save data
+            current_year (int): Current year
+            current_month (int): Current month
+        """
+        min_x, min_y, max_x, max_y = self._find_bounds(country)
+
+        # Forecast data request
         request = {
             "originating_centre": "ecmwf",
             "system": "51",
@@ -703,54 +767,13 @@ class Load:
             "year": [current_year],
             "month": [current_month],
             "leadtime_month": [
-                "1",
-                "2",
-                "3",
-                "4",
-                "5",
-                "6"
+                str(m) for m in range(1,7)
             ],
             "data_format": "grib",
             "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
         }
         target = f'{data_dir}/ecmwf_seas5_forecast_monthly_tp.grib'
-        c.retrieve(dataset, request, target)
-
-        sleep = 30
-        time.sleep(sleep)
-        
-        request = {
-            "originating_centre": "ecmwf",
-            "system": "51",
-            "variable": ["total_precipitation"],
-            "product_type": ["monthly_mean"],
-            "year": [
-                "1991", "1992","1993", 
-                "1994", "1995","1996", 
-                "1997", "1998","1999", 
-                "2000", "2001","2002", 
-                "2003", "2004","2005", 
-                "2006", "2007","2008", 
-                "2009", "2010","2011", 
-                "2012", "2013","2014", 
-                "2015", "2016","2017", 
-                "2018", "2019","2020"
-            ],
-            "month": ["03"],
-            "leadtime_month": [
-                "1",
-                "2",
-                "3",
-                "4",
-                "5",
-                "6"
-            ],
-            "data_format": "grib",
-            "area": [int(x) for x in [max_y+1 , min_x-1, min_y-1, max_x+1]] # North, West, South, East
-        }
-        target = f'{data_dir}/ecmwf_seas5_hindcast_monthly_tp.grib'
-        c.retrieve(dataset, request, target)
-
+        self.request_ecmwf_data(request, target)
 
     def __look_up_dates(
             self, 
@@ -875,3 +898,157 @@ class Load:
                 # triggered_lead_times.append(lead_time)
         events = dict(sorted(events.items()))
         return events
+
+
+    def get_threshold_data(self, country: str, triggermodel: str, climate_region_code: str):
+        """
+        Retrieve the latest thresholds document for a given country, model and climate region
+        and return the `thresholds` dict (same shape as passed to `save_threshold_data`).
+
+        Returns None if no document found.
+        """
+        try:
+            client_ = cosmos_client.CosmosClient(
+                self.secrets.get_secret("COSMOS_URL"),
+                {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
+                user_agent="drought-pipeline",
+                user_agent_overwrite=True,
+            )
+            cosmos_db = client_.get_database_client("drought-pipeline")
+            container_name = "seasonal-rainfall-threshold"
+            cosmos_container_client = cosmos_db.get_container_client(container_name)
+
+            query = (
+                f"SELECT * FROM c WHERE c.country = '{country}' "
+                f"AND c.model = '{triggermodel}' "
+                f"AND c.climate_region = '{climate_region_code}'"
+            )
+            records = list(
+                cosmos_container_client.query_items(query=query, enable_cross_partition_query=False)
+            )
+
+            if not records:
+                logging.info(f"No threshold documents found for {country} {climate_region_code} {triggermodel}")
+                return None
+
+            # pick the latest by timestamp (stored as '%Y-%m-%dT%H:%M:%S')
+            def _ts(rec):
+                try:
+                    return datetime.strptime(rec.get("timestamp", ""), "%Y-%m-%dT%H:%M:%S")
+                except Exception:
+                    return datetime.min
+
+            latest = max(records, key=_ts)
+            return latest.get("thresholds")
+
+        except Exception as e:
+            logging.error(f"Error retrieving threshold data: {e}")
+            return None
+
+    def get_hindcast_data(self, country: str, triggermodel: str):
+        """
+        Retrieve hindcast mean data from CosmosDB
+
+        Parameters:
+            country (str): Country code
+            triggermodel (str): Trigger model name
+        Returns:
+            xr.Dataset or None: `ds_mean` xarray Dataset with dimensions
+                (forecastMonth, latitude, longitude), or `None` if not found.
+        """
+        try:
+            client_ = cosmos_client.CosmosClient(
+                self.secrets.get_secret("COSMOS_URL"),
+                {"masterKey": self.secrets.get_secret("COSMOS_KEY")},
+                user_agent="drought-pipeline",
+                user_agent_overwrite=True,
+            )
+            cosmos_db = client_.get_database_client("drought-pipeline")
+            cosmos_container_client = cosmos_db.get_container_client("seasonal-rainfall-hindcast")
+
+            query = f"SELECT * FROM c WHERE c.country = '{country}' and c.model = '{triggermodel}'"
+            records = list(cosmos_container_client.query_items(query=query, enable_cross_partition_query=False))
+
+            if not records:
+                logging.info(f"No hindcast data found for country {country}")
+                return None
+
+            # Collect spatial coordinates and per-month records
+            lead_times = []
+            lat_set = set()
+            lon_set = set()
+            month_records = {}
+
+            for rec in records:
+                seasonal = rec.get("seasonal_rainfall")
+                lead_time = rec.get("lead_time")
+                if seasonal is None or lead_time is None:
+                    continue
+                try:
+                    m = int(lead_time)
+                except Exception:
+                    continue
+                lead_times.append(m)
+                month_records[m] = seasonal
+
+                for pt in seasonal:
+                    try:
+                        lat_set.add(float(pt.get("lat")))
+                        lon_set.add(float(pt.get("lon")))
+                    except Exception:
+                        continue
+
+            if not month_records:
+                logging.info(f"No per-month hindcast documents found for country {country}")
+                return None
+
+            months = sorted(set(lead_times))
+            lat_vals = sorted(lat_set)
+            lon_vals = sorted(lon_set)
+
+            if len(lat_vals) == 0 or len(lon_vals) == 0:
+                logging.info(f"No spatial points found in hindcast documents for country {country}")
+                return None
+
+            n_m = len(months)
+            n_lat = len(lat_vals)
+            n_lon = len(lon_vals)
+
+            # Initialize mean array
+            data_mean = np.full((n_m, n_lat, n_lon), np.nan, dtype=float)
+
+            lat_index = {v: i for i, v in enumerate(lat_vals)}
+            lon_index = {v: j for j, v in enumerate(lon_vals)}
+
+            # Populate mean array from CosmosDB records
+            for mi, m in enumerate(months):
+                seasonal = month_records.get(m, [])
+                for pt in seasonal:
+                    try:
+                        lat = float(pt.get("lat"))
+                        lon = float(pt.get("lon"))
+                        i = lat_index.get(lat)
+                        j = lon_index.get(lon)
+                        if i is None or j is None:
+                            continue
+                        v_mean = pt.get("mean")
+                        if v_mean is not None:
+                            data_mean[mi, i, j] = float(v_mean)
+                    except Exception:
+                        continue
+
+            # Create xarray dataset for mean
+            ds_mean = xr.Dataset({
+                "tprate": xr.DataArray(
+                    data_mean,
+                    coords={"forecastMonth": months, "latitude": lat_vals, "longitude": lon_vals},
+                    dims=("forecastMonth", "latitude", "longitude"),
+                )
+            })
+
+            logging.info(f"Successfully reconstructed hindcast mean dataset for country {country}")
+            return ds_mean
+
+        except Exception as e:
+            logging.error(f"Error retrieving hindcast data: {e}")
+            return None
