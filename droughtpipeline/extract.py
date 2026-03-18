@@ -118,19 +118,19 @@ class Extract:
         current_year = datestart.strftime('%Y')
         current_month = datestart.strftime("%m")
 
-        # # Download netcdf file
-        # logging.info(f"downloading ecmwf data ")
-        # try:
-        #     self.load.download_ecmwf_forecast(
-        #         country,
-        #         self.inputPathGrid,
-        #         current_year, 
-        #         current_month,
-        #     )
-        # except FileNotFoundError:
-        #     logging.warning(
-        #         f"downloading ECMWF file failed"
-        #     )     
+        # Download netcdf file
+        logging.info(f"downloading ecmwf data ")
+        try:
+            self.load.download_ecmwf_forecast(
+                country,
+                self.inputPathGrid,
+                current_year, 
+                current_month,
+            )
+        except FileNotFoundError:
+            logging.warning(
+                f"downloading ECMWF file failed"
+            )     
 
         logging.info("finished downloading ECMWF data")
 
