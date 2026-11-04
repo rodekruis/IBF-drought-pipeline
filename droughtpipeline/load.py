@@ -736,7 +736,7 @@ class Load:
                 "2015", "2016","2017", 
                 "2018", "2019","2020"
             ],
-            "month": ["03"],
+            "month": [current_month],
             "leadtime_month": [
                 "1",
                 "2",
